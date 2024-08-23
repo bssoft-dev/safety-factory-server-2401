@@ -14,9 +14,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class Room(BaseModel):
     room_name: str
-
 
 audio_processor = AudioProcessor()
 
@@ -39,4 +39,3 @@ async def read_root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=24015)
-
