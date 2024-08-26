@@ -10,6 +10,7 @@ CHANNELS = 1
 RATE = 8000
 SYNC_INTERVAL = 0.2  # Sync at every 100ms
 BUFFER_SIZE = RATE * 10  # Audio Data buffer for 10sec
+FRAME_SIZE = 2048
 
 def is_browser(headers):
     return not("python" in headers.get("user-agent", "").lower())
@@ -72,28 +73,26 @@ class AudioProcessor:
             if time_interval >= SYNC_INTERVAL:
                 room_buffer = self.audio_buffers[room_name]
                 combined_audio = []
-                min_length = float("inf")
                 active_clients = []
+                min_length = float("inf")
 
                 # First pass: read audio data from buffer and find minimum length
                 for client_id, client_buffer in room_buffer.items():
-                    #client_data = client_buffer.get_data()
                     if client_buffer:
-                        #client_data = client_buffer.popleft()
+                        read_buffer_len = len(client_buffer)
                         if client_id == -1: # If client is webbrowser
-                            float_data = np.array(client_buffer, dtype=np.float32).reshape(-1)
-                            client_buffer.clear()
+                            float_data = np.array(client_buffer, dtype=np.int16).reshape(-1)
                             audio_data = (float_data*32767).astype(FORMAT)
                         else:
                             byte_data = b''.join(client_buffer)
-                            client_buffer.clear()
                             audio_data = np.frombuffer(byte_data, dtype=FORMAT)
                             
                         min_length = min(min_length, len(audio_data))
                         combined_audio.append(audio_data)
                         active_clients.append(client_id)
 
-                if combined_audio:
+                if combined_audio and (min_length >= FRAME_SIZE):
+                    min_length = min_length - (min_length % FRAME_SIZE)
                     # Second pass: process audio and update buffers
                     for i, client_id in enumerate(active_clients):
                         client_buffer = room_buffer[client_id]
@@ -101,7 +100,10 @@ class AudioProcessor:
                         processing_data = audio_data[:min_length]
                         remaining_data = audio_data[min_length:]
                         combined_audio[i] = processing_data
-
+                        
+                        for _ in range(read_buffer_len):
+                            client_buffer.popleft()
+                        
                         # Update buffer with remaining data
                         if client_id == -1:  # If client is webbrowser
                             if len(remaining_data) > 0:
@@ -114,7 +116,7 @@ class AudioProcessor:
                     for client in self.rooms[room_name]:
                         asyncio.create_task(self.send_audio(client, processed_data))
                 last_process_time = current_time
-            await asyncio.sleep(0.001)
+            await asyncio.sleep(0.01)
 
     def _process_audio(self, combined_audio):
         # Remove empty audio
