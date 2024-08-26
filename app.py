@@ -28,6 +28,15 @@ async def get_info_rooms():
 async def create_room(room: Room):
     return await audio_processor.create_room(room.room_name)
 
+@app.get("/v1/room/{room_name}/add_person")
+async def add_person_to_room(room_name: str):
+    audio_processor.rooms_num_person[room_name] += 1
+    return {"message": f"Person added to room '{room_name}'"}
+
+@app.get("/v1/room/{room_name}/remove_person")
+async def remove_person_from_room(room_name: str):
+    audio_processor.rooms_num_person[room_name] -= 1
+    return {"message": f"Person removed from room '{room_name}'"}
 
 @app.get("/v1/noise_remove/{turn_on}")
 async def use_noise_remove(turn_on: bool):

@@ -34,6 +34,7 @@ def apply_lowpass_filter(data, cutoff, fs, order=10):
 class AudioProcessor:
     def __init__(self):
         self.rooms: Dict[str, Set[WebSocket]] = {}
+        self.rooms_num_person: Dict[str, int] = {}
         self.audio_buffers: Dict[str, Dict[int, deque]] = {}
         self.use_voice_enhance = False
 
@@ -43,12 +44,13 @@ class AudioProcessor:
     def get_rooms(self):
         room_info = []
         for room_name in self.rooms.keys():
-            room_info.append({"room_name": room_name, "num_person": len(self.rooms[room_name])})
+            room_info.append({"room_name": room_name, "num_person": self.rooms_num_person[room_name]})
         return room_info
     
     async def create_room(self, room_name: str):
         if room_name not in self.rooms:
             self.rooms[room_name] = set()
+            self.rooms_num_person[room_name] = 0
             self.audio_buffers[room_name] = {}
             asyncio.create_task(self.process_room_audio(room_name))
         return {"message": f"Room '{room_name}' created successfully"}
@@ -62,6 +64,7 @@ class AudioProcessor:
         headers = websocket.headers
         if is_browser(headers):
             client_id = -1
+            self.rooms_num_person[room_name] += 1
         else:
             client_id = id(websocket)
         self.audio_buffers[room_name][client_id] = deque(maxlen=BUFFER_SIZE)
@@ -70,19 +73,20 @@ class AudioProcessor:
                 while True:
                     json_data = await websocket.receive_json()
                     data = json_data["data"]
-                    print(f"Data type: {type(data)}")
-                    print(f"Data length: {len(data)}")
-                    self.audio_buffers[room_name][client_id].append(data)
+                    for i in range(0, len(data), FRAME_SIZE):
+                        self.audio_buffers[room_name][client_id].append(data[i:i+FRAME_SIZE])
             else:
                 while True:
                     data = await websocket.receive_bytes()
                     self.audio_buffers[room_name][client_id].append(data)
         except WebSocketDisconnect:
+            if client_id == -1:
+                self.rooms_num_person[room_name] -= 1
             self.rooms[room_name].remove(websocket)
             del self.audio_buffers[room_name][client_id]
-            if not self.rooms[room_name]:
-                del self.rooms[room_name]
-                del self.audio_buffers[room_name]                
+            # if not self.rooms[room_name]:
+            #     del self.rooms[room_name]
+            #     del self.audio_buffers[room_name]                
 
     async def process_room_audio(self, room_name: str):
         last_process_time = asyncio.get_event_loop().time()
@@ -125,8 +129,11 @@ class AudioProcessor:
                             client_buffer.popleft()
                         # Update buffer with remaining data
                         if client_id == -1:  # If client is webbrowser
+                                # client_buffer.appendleft((remaining_data / 32767).tolist())
                             if len(remaining_data) > 0:
-                                client_buffer.appendleft((remaining_data / 32767).tolist())
+                                # append remaining data to buffer in order by reversing
+                                for j in range(len(remaining_data), 0, -FRAME_SIZE):
+                                    client_buffer.appendleft((remaining_data[j-FRAME_SIZE:j]/32767).tolist())
                         else:
                             if len(remaining_data) > 0:
                                 client_buffer.appendleft(remaining_data.tobytes())
