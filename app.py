@@ -28,6 +28,12 @@ async def get_info_rooms():
 async def create_room(room: Room):
     return await audio_processor.create_room(room.room_name)
 
+
+@app.get("/v1/noise_remove/{turn_on}")
+async def use_noise_remove(turn_on: bool):
+    audio_processor.use_voice_enhance = turn_on
+    return {"message": f"Use noise remove: {turn_on}"}
+
 @app.websocket("/ws/room/{room_name}")
 async def websocket_endpoint(websocket: WebSocket, room_name: str):
     await audio_processor.join_room(websocket, room_name)
