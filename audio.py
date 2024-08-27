@@ -6,8 +6,6 @@ from collections import deque
 from voice_enhance import enhancer
 import torch, torchaudio
 from scipy.signal import butter, lfilter
-# import noisereduce as nr
-# from type_converter import int16_to_float32, float32_to_int16
 
 # Audio parameters
 FORMAT = np.int16
@@ -73,6 +71,7 @@ class AudioProcessor:
                 while True:
                     json_data = await websocket.receive_json()
                     data = json_data["data"]
+                    # print(f"Received data from webbrowser: {len(data)}")
                     for i in range(0, len(data), FRAME_SIZE):
                         self.audio_buffers[room_name][client_id].append(data[i:i+FRAME_SIZE])
             else:
@@ -84,9 +83,9 @@ class AudioProcessor:
                 self.rooms_num_person[room_name] -= 1
             self.rooms[room_name].remove(websocket)
             del self.audio_buffers[room_name][client_id]
-            # if not self.rooms[room_name]:
-            #     del self.rooms[room_name]
-            #     del self.audio_buffers[room_name]                
+            if (not self.rooms[room_name]) and (room_name == '보온팀') :
+                del self.rooms[room_name]
+                del self.audio_buffers[room_name]                
 
     async def process_room_audio(self, room_name: str):
         last_process_time = asyncio.get_event_loop().time()
@@ -143,46 +142,28 @@ class AudioProcessor:
                     
                     # Send processed data to all clients non-blocking
                     for client in self.rooms[room_name]:
+                        # print(f"Sending processed data to client {len(processed_data)}")
                         asyncio.create_task(self.send_audio(client, processed_data))
                 last_process_time = current_time
             await asyncio.sleep(0.01)
 
     def _process_audio(self, combined_audio):
         # Remove empty audio
-        
-        # # Trim to minimum length for every audio
-        # min_length = min(len(audio) for audio in combined_audio)
-        # print(min_length)
-        # trimmed_audio = [audio[:min_length] for audio in combined_audio]
 
         # Audio mixing: use average
-        # mixed_audio = np.mean(trimmed_audio, axis=0)
         mixed_audio = np.mean(combined_audio, axis=0)
         if self.use_voice_enhance:
             torch_audio = torchaudio.transforms.Resample(orig_freq=RATE, new_freq=16000)(torch.tensor(mixed_audio, dtype=torch.float32).unsqueeze(0))            
             torch_audio = torch_audio.to("cuda:0")
-            # torch_audio = torch.tensor(mixed_audio, dtype=torch.float32).unsqueeze(0)
             mixed_audio = enhancer(torch_audio)
             mixed_audio = torchaudio.transforms.Resample(orig_freq=16000, new_freq=RATE)(mixed_audio.cpu()).squeeze(0)
             mixed_audio = mixed_audio.numpy()
-            
-            # # mixed_audio = mixed_audio.squeeze(0).numpy()
-            # mixed_audio = torchaudio.transforms.Resample(orig_freq=16000, new_freq=RATE)(mixed_audio).squeeze(0)
-            # mixed_audio = mixed_audio.detach().numpy()            
-
-            # data = int16_to_float32(mixed_audio)
-            # nData = int16_to_float32(np.frombuffer(b''.join(noise), np.int16))
-            # data = nr.reduce_noise(audio_clip=data, noise_clip=nData,
-            #                        verbose=False, n_std_thresh=1.5, prop_decrease=1,
-            #                        win_length=WIN_LENGTH, n_fft=WIN_LENGTH, hop_length=HOP_LENGTH,
-            #                        n_grad_freq=4)
             
         # Apply soft clipping
         mixed_audio = self.soft_clip(mixed_audio / 32767) * 32767
 
         # Convert to int16 (apply round)
         return np.round(mixed_audio).astype(FORMAT)
-        # return np.round(mixed_audio)
 
     def soft_clip(self, x, threshold=0.9):
         return np.tanh(x / threshold) * threshold
