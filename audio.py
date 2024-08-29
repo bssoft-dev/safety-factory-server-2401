@@ -154,7 +154,7 @@ class AudioProcessor:
         mixed_audio = np.mean(combined_audio, axis=0)
         if self.use_voice_enhance:
             torch_audio = torchaudio.transforms.Resample(orig_freq=RATE, new_freq=16000)(torch.tensor(mixed_audio, dtype=torch.float32).unsqueeze(0))            
-            torch_audio = torch_audio.to("cuda:0")
+            torch_audio = torch_audio.to("cuda:1")
             mixed_audio = enhancer(torch_audio)
             mixed_audio = torchaudio.transforms.Resample(orig_freq=16000, new_freq=RATE)(mixed_audio.cpu()).squeeze(0)
             mixed_audio = mixed_audio.numpy()

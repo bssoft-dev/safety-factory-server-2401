@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 from audio import AudioProcessor
@@ -32,8 +32,9 @@ audio_processor = AudioProcessor()
 
 @app.get("/v1/rooms")
 async def get_info_rooms():
-    return audio_processor.get_rooms()
-
+    with Session(engine) as session:
+        return session.exec(select(Rooms)).all()
+    
 @app.post("/v1/create_room")
 async def create_room(room: Room):
     res = await audio_processor.create_room(room.room_name)
@@ -63,14 +64,18 @@ async def remove_person_from_room(room_name: str):
         session.commit()
     return {"message": f"Person removed from room '{room_name}'"}
 
-@app.delete("/v1/room/{room_name}")
-async def delete_room(room_name: str):
-    if room_name in audio_processor.rooms:
-        for ws in audio_processor.rooms[room_name]:
-            await ws.close(code=4004)
-        del audio_processor.rooms[room_name]
-        del audio_processor.audio_buffers[room_name]
+@app.delete("/v1/room/{id}")
+async def delete_room(id: int):
     with Session(engine) as session:
+        room = session.exec(select(Rooms).filter(Rooms.id == id)).first()
+        if room is None:
+            raise HTTPException(status_code=400, detail=f"Room id {id} is not found")
+        room_name = room.room_name
+        if room_name in audio_processor.rooms:
+            for ws in audio_processor.rooms[room_name]:
+                await ws.close(code=4004)
+            del audio_processor.rooms[room_name]
+            del audio_processor.audio_buffers[room_name]
         room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
         session.delete(room)
         session.commit()
