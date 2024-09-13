@@ -6,6 +6,7 @@ from database import create_db_and_tables, engine
 from sqlmodel import Session, select
 from models import Rooms
 from contextlib import asynccontextmanager
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
@@ -29,6 +30,7 @@ class Room(BaseModel):
     room_name: str
 
 audio_processor = AudioProcessor()
+alert_info = {"warning": False, "message": ""}
 
 @app.get("/v1/rooms")
 async def get_info_rooms():
@@ -46,22 +48,12 @@ async def create_room(room: Room):
 
 @app.get("/v1/room/{room_name}/add_person")
 async def add_person_to_room(room_name: str):
-    # audio_processor.rooms_num_person[room_name] += 1
-    with Session(engine) as session:
-        room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
-        room.num_person = room.num_person + 1
-        session.add(room)
-        session.commit()
+    audio_processor.add_person_to_room(room_name)
     return {"message": f"Person added to room '{room_name}'"}
 
 @app.get("/v1/room/{room_name}/remove_person")
 async def remove_person_from_room(room_name: str):
-    # audio_processor.rooms_num_person[room_name] -= 1
-    with Session(engine) as session:
-        room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
-        room.num_person = room.num_person - 1
-        session.add(room)
-        session.commit()
+    audio_processor.remove_person_from_room(room_name)
     return {"message": f"Person removed from room '{room_name}'"}
 
 @app.delete("/v1/room/{id}")
@@ -89,6 +81,7 @@ async def use_noise_remove(turn_on: bool):
 @app.websocket("/ws/room/{room_name}")
 async def websocket_endpoint(websocket: WebSocket, room_name: str):
     await audio_processor.join_room(websocket, room_name)
+ 
 
 @app.get("/")
 async def read_root():
@@ -96,4 +89,4 @@ async def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=24015)
+    uvicorn.run("app:app", host="0.0.0.0", port=24015, reload=True)

@@ -6,6 +6,9 @@ from collections import deque
 from voice_enhance import enhancer
 import torch, torchaudio
 from scipy.signal import butter, lfilter
+from database import engine
+from sqlmodel import Session, select
+from models import Rooms
 
 # Audio parameters
 FORMAT = np.int16
@@ -35,6 +38,20 @@ class AudioProcessor:
         self.rooms_num_person: Dict[str, int] = {}
         self.audio_buffers: Dict[str, Dict[int, deque]] = {}
         self.use_voice_enhance = False
+        
+    def add_person_to_room(self, room_name: str):
+        with Session(engine) as session:
+            room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
+            room.num_person = room.num_person + 1
+            session.add(room)
+            session.commit()
+    
+    def remove_person_from_room(self, room_name: str):
+        with Session(engine) as session:
+            room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
+            room.num_person = room.num_person - 1
+            session.add(room)
+            session.commit()
 
     def get_num_rooms(self):
         return len(self.rooms)
@@ -61,13 +78,13 @@ class AudioProcessor:
         self.rooms[room_name].add(websocket)
         headers = websocket.headers
         if is_browser(headers):
-            client_id = -1
-            self.rooms_num_person[room_name] += 1
+            client_id = -id(websocket)
+            self.add_person_to_room(room_name)
         else:
             client_id = id(websocket)
         self.audio_buffers[room_name][client_id] = deque(maxlen=BUFFER_SIZE)
         try:
-            if client_id == -1:
+            if client_id < 0:
                 while True:
                     json_data = await websocket.receive_json()
                     data = json_data["data"]
@@ -79,8 +96,8 @@ class AudioProcessor:
                     data = await websocket.receive_bytes()
                     self.audio_buffers[room_name][client_id].append(data)
         except WebSocketDisconnect:
-            if client_id == -1:
-                self.rooms_num_person[room_name] -= 1
+            if client_id < 0:
+                self.remove_person_from_room(room_name)
             self.rooms[room_name].remove(websocket)
             del self.audio_buffers[room_name][client_id]
             if (not self.rooms[room_name]) and (room_name == '보온팀') :
@@ -104,7 +121,7 @@ class AudioProcessor:
                     if client_buffer:
                         active_clients.append(client_id)
                         read_buffer_len.append(len(client_buffer))
-                        if client_id == -1: # If client is webbrowser
+                        if client_id < 0: # If client is webbrowser
                             float_data = np.array(client_buffer, dtype=np.float32).reshape(-1)
                             audio_data = (float_data*32767).astype(FORMAT)
                         else:
@@ -127,7 +144,7 @@ class AudioProcessor:
                         for _ in range(read_buffer_len[i]):
                             client_buffer.popleft()
                         # Update buffer with remaining data
-                        if client_id == -1:  # If client is webbrowser
+                        if client_id < 0:  # If client is webbrowser
                                 # client_buffer.appendleft((remaining_data / 32767).tolist())
                             if len(remaining_data) > 0:
                                 # append remaining data to buffer in order by reversing
