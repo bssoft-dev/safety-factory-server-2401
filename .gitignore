@@ -1,6 +1,7 @@
 *.log
 log.txt
 env.py
+logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

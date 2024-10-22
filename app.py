@@ -46,15 +46,15 @@ async def create_room(room: Room):
         session.commit()
     return res
 
-@app.get("/v1/room/{room_name}/add_person")
-async def add_person_to_room(room_name: str):
-    audio_processor.add_person_to_room(room_name)
-    return {"message": f"Person added to room '{room_name}'"}
+# @app.get("/v1/room/{room_name}/add_person")
+# async def add_person_to_room(room_name: str):
+#     audio_processor.add_person_to_room(room_name)
+#     return {"message": f"Person added to room '{room_name}'"}
 
-@app.get("/v1/room/{room_name}/remove_person")
-async def remove_person_from_room(room_name: str):
-    audio_processor.remove_person_from_room(room_name)
-    return {"message": f"Person removed from room '{room_name}'"}
+# @app.get("/v1/room/{room_name}/remove_person")
+# async def remove_person_from_room(room_name: str):
+#     audio_processor.remove_person_from_room(room_name)
+#     return {"message": f"Person removed from room '{room_name}'"}
 
 @app.delete("/v1/room/{id}")
 async def delete_room(id: int):
@@ -78,9 +78,14 @@ async def use_noise_remove(turn_on: bool):
     audio_processor.use_voice_enhance = turn_on
     return {"message": f"Use noise remove: {turn_on}"}
 
-@app.websocket("/ws/room/{room_name}")
-async def websocket_endpoint(websocket: WebSocket, room_name: str):
-    await audio_processor.join_room(websocket, room_name)
+@app.get("/v1/mute_me/{turn_on}")
+async def use_mute_me(turn_on: bool):
+    audio_processor.mute_me = turn_on
+    return {"message": f"Remove myself voice: {turn_on}"}
+
+@app.websocket("/ws/room/{room_name}/{sr}/{dtype}")
+async def websocket_endpoint(room_name: str, sr: int, dtype: str, websocket: WebSocket):
+    await audio_processor.join_room(room_name, sr, dtype, websocket)
  
 
 @app.get("/")
@@ -89,4 +94,4 @@ async def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=24015, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=24015, reload=True, log_config='utils/log_conf.json')
