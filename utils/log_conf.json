@@ -9,7 +9,7 @@
     "handlers": {
       "uvicorn": {
         "class": "logging.handlers.TimedRotatingFileHandler",
-        "level": "DEBUG",
+        "level": "INFO",
         "formatter": "simple",
         "when": "midnight",
         "interval": 1,
@@ -19,7 +19,7 @@
     },
     "loggers": {
       "uvicorn": {
-        "level": "DEBUG",
+        "level": "INFO",
         "handlers": [
           "uvicorn"
         ],

@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, HTTPException
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 from audio import AudioProcessor
-from database import create_db_and_tables, engine
+from database import create_db_and_tables, engine, clear_room_data
 from sqlmodel import Session, select
 from models import Rooms
 from contextlib import asynccontextmanager
@@ -11,6 +11,7 @@ import asyncio
 @asynccontextmanager
 async def lifespan(app:FastAPI):
     create_db_and_tables()
+    clear_room_data()
     yield
     print("Yield done")
     
@@ -65,7 +66,10 @@ async def delete_room(id: int):
         room_name = room.room_name
         if room_name in audio_processor.rooms:
             for ws in audio_processor.rooms[room_name]:
-                await ws.close(code=4004)
+                try:
+                    await ws.close(code=4004)
+                except:
+                    pass
             del audio_processor.rooms[room_name]
             del audio_processor.audio_buffers[room_name]
         room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
@@ -83,6 +87,21 @@ async def use_mute_me(turn_on: bool):
     audio_processor.mute_me = turn_on
     return {"message": f"Remove myself voice: {turn_on}"}
 
+@app.get("/v1/keep_test_room/{turn_on}")
+async def keep_test_room(turn_on: bool):
+    audio_processor.keep_test_room = turn_on
+    return {"message": f"Keep test room: {turn_on}"}
+
+@app.get("/v1/do_stt/{turn_on}")
+async def do_stt(turn_on: bool):
+    audio_processor.do_stt = turn_on
+    return {"message": f"Do stt: {turn_on}"}
+
+@app.get("/v1/classify_event/{turn_on}")
+async def classify_event(turn_on: bool):
+    audio_processor.classify_event = turn_on
+    return {"message": f"Classify event: {turn_on}"}
+         
 @app.websocket("/ws/room/{room_name}/{sr}/{dtype}")
 async def websocket_endpoint(room_name: str, sr: int, dtype: str, websocket: WebSocket):
     await audio_processor.join_room(room_name, sr, dtype, websocket)
