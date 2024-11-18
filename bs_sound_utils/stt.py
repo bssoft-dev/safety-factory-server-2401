@@ -13,7 +13,7 @@ class SttProcessor:
     async def send_audio(self, audio_data: bytes, room_name: str):
         try:
             async with aiohttp.ClientSession() as http_session:
-                async with http_session.post(self.infer_url, data=audio_data, headers=self.byte_headers) as res:
+                async with http_session.post(f"{self.infer_url}/{room_name}", data=audio_data, headers=self.byte_headers) as res:
                     if res.status == 200:
                         data = await res.json()
                         print(f"STT: {data}")
