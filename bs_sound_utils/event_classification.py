@@ -5,8 +5,7 @@ from models import Events
 
 
 class EventClassifier:
-    def __init__(self, device):
-        self.device = device
+    def __init__(self):
         self.infer_url = "https://api-2106.bs-soft.co.kr/v2401/classify-audio/byte"
         self.byte_headers = {"Content-Type": "application/octet-stream"}
 

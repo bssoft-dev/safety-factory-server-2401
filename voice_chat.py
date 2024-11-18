@@ -21,7 +21,7 @@ class VoiceChat(AudioUtils):
         self.save_audio = False
         self.keep_test_room = True
         self.classify_event = False
-        self.do_stt = False
+        self.do_stt = True
         self.enhance_volume = 0
         self.input_rec_buffer: Dict[int, list] = {} # client_id, 오디오 버퍼
         self.output_rec_buffer: Dict[int, list] = {} # client_id, 오디오 버퍼
@@ -176,10 +176,13 @@ class VoiceChat(AudioUtils):
                         combined_audio_int16.append(np.array(buffers, dtype=self.FORMAT).reshape(-1))
                         # if self.use_voice_enhance:
                         #     combined_audio_int16[i] = apply_lowpass_filter(combined_audio_int16[i])
-                    if self.classify_event:
-                        asyncio.create_task(self.classify_audio(combined_audio_int16, room_name))
-                    if self.do_stt:
-                        asyncio.create_task(self.stt_audio(combined_audio_int16))
+                    if self.classify_event or self.do_stt:
+                        processed_data_int16 = self.mix_audio(combined_audio_int16)
+                        send_data = processed_data_int16.tobytes()
+                        if self.classify_event:
+                            asyncio.create_task(self.event_classifier.classify_audio(send_data, room_name))
+                        if self.do_stt:
+                            asyncio.create_task(self.stt.send_audio(send_data, room_name))
                 # Third: Mix audio and send to all clients non-blocking
                     for audio_idx, (ws_idx, client_id) in enumerate(active_clients):
                         if self.hear_me == True:

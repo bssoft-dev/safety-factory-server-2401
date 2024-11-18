@@ -6,6 +6,7 @@ import torch
 
 from bs_sound_utils.voice_enhance import VoiceEnhancer
 from bs_sound_utils.event_classification import EventClassifier
+from bs_sound_utils.stt import SttProcessor
 
 class AudioUtils:
     def __init__(self):
@@ -20,7 +21,8 @@ class AudioUtils:
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.b, self.a = self.butter_lowpass(2000, self.RATE, order=10)
         self.voice_enhancer = VoiceEnhancer(device)
-        self.event_classifier = EventClassifier(device)
+        self.event_classifier = EventClassifier()
+        self.stt = SttProcessor()
         
     def butter_lowpass(self, cutoff, fs, order=10):
         nyq = 0.5 * fs
@@ -60,17 +62,15 @@ class AudioUtils:
         # Audio mixing: use average
         return np.mean(np.array(selected_audio), axis=0, dtype=dtype)
     
-    async def classify_audio(self, combined_audio: list[np.ndarray], room_name: str):
-        processed_data_int16 = self.mix_audio(combined_audio)
-        send_data = processed_data_int16.tobytes()
+    async def classify_audio(self, send_data: bytes, room_name: str):
         await self.event_classifier.classify_audio(send_data, room_name)
     
+    async def stt_audio(self, send_data: bytes, room_name: str):
+        await self.stt.send_audio(send_data, room_name)
+
     def voice_enhance(self, audio_data):
         return self.voice_enhancer.enhance(audio_data)
     
-    async def stt_audio(self, audio_data):
-        pass
-
     async def send_audio(self, ws, client_id, processed_data_int16):
         try:
             if self.client_info[client_id]["dtype"] == "float32":
