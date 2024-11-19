@@ -64,7 +64,11 @@ class VoiceChat(AudioUtils):
                 if room.num_person == 0:
                     room.persons = ''
                 else:
+                    pre_len = len(room.persons)
                     room.persons = room.persons.replace(f", {person_name}", '', 1)
+                    post_len = len(room.persons)
+                    if pre_len == post_len:
+                        room.persons = room.persons.replace(f"{person_name}, ", '', 1)
                 session.add(room)
                 session.commit()
         return client_id
@@ -106,7 +110,6 @@ class VoiceChat(AudioUtils):
             try:
                 byte_data = await client_ws.receive_bytes()
                 # print(f"Received data from client {client_id}: {len(byte_data)}")
-            # except (WebSocketDisconnect, KeyError, RuntimeError):
             except:
                 await self.exit_room(room_name, client_ws)
                 if self.save_audio:

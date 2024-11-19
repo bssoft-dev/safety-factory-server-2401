@@ -46,16 +46,6 @@ async def create_room(room: Room):
         session.commit()
     return res
 
-# @app.get("/v1/room/{room_name}/add_person")
-# async def add_person_to_room(room_name: str):
-#     voice_chat.add_person_to_room(room_name)
-#     return {"message": f"Person added to room '{room_name}'"}
-
-# @app.get("/v1/room/{room_name}/remove_person")
-# async def remove_person_from_room(room_name: str):
-#     voice_chat.remove_person_from_room(room_name)
-#     return {"message": f"Person removed from room '{room_name}'"}
-
 @app.delete("/v1/room/{id}")
 async def delete_room(id: int):
     res = await voice_chat.delete_room(id)
