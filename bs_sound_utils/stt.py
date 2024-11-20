@@ -18,7 +18,7 @@ class SttProcessor:
                         data = await res.json()
                         print(f"STT: {data}")
                         if data["result"] != "":
-                            self.text_remain_counter = 5
+                            self.text_remain_counter = min(len(data["result"])//5, 15)
                         else:
                             self.text_remain_counter = self.text_remain_counter - 1
                         if (self.text_remain_counter <= 0) or (data["result"] != ""):

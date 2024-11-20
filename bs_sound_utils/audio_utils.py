@@ -94,7 +94,7 @@ class AudioUtils:
             wf.writeframes(struct.pack('%dh' % len(data), *data))
 
     def save_audio(self, rec_buffer: list[np.ndarray], person_name: str, room_name: str, tag: str):
-        now = time.strftime('%Y-%m-%d_%H:%M:%S')
+        now = time.strftime('%Y-%m-%d_%Hh%Mm%Ss')
         [date, now_time] = now.split('_')
         os.makedirs(f"{self.save_audio_dir}/{date}/{room_name}", exist_ok=True)
         input_filename = f"{self.save_audio_dir}/{date}/{room_name}/{tag}_{now_time}_{person_name}.wav"
