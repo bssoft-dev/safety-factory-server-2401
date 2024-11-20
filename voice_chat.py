@@ -224,6 +224,6 @@ class VoiceChat(AudioUtils):
         await self.send_audio(ws, client_id, processed_data_int16)
         if self.record_audio:
             self.output_rec_buffer[client_id].append(processed_data_int16)
-            if np.concatenate(self.input_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
+            if np.concatenate(self.output_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
                 self.save_audio(self.output_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "output")
                 self.output_rec_buffer[client_id] = []
