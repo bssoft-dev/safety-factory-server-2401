@@ -5,5 +5,5 @@ async def log(message):
         log.write(str(message))
         log.write('\n')
 
-async def aprint(message):
+def aprint(message):
     asyncio.create_task(log(message))

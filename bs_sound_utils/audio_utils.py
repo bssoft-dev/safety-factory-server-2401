@@ -1,8 +1,9 @@
 import numpy as np
-import wave
-import struct
+import os, time
+import wave, struct
 from scipy.signal import butter, lfilter
 import torch
+from utils.sys import aprint
 
 from bs_sound_utils.voice_enhance import VoiceEnhancer
 from bs_sound_utils.event_classification import EventClassifier
@@ -16,8 +17,8 @@ class AudioUtils:
         self.RATE = 16000
         self.FRAME_SIZE = 2048
         self.BUFFER_SIZE = int(self.RATE / self.FRAME_SIZE) * 1 # buffer size about 1 sec
+        self.save_audio_dir = "./recordings"
         self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 4 # Sync interval for processing audio is about 0.512 sec
-        
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.b, self.a = self.butter_lowpass(2000, self.RATE, order=10)
         self.voice_enhancer = VoiceEnhancer(device)
@@ -84,7 +85,7 @@ class AudioUtils:
         except:
             print("Couldn't send data to client")
             pass  # Ignore disconnected clients
-    
+        
     def save_wav(self, filename, rate, data):
         with wave.open(filename, 'wb') as wf:
             wf.setnchannels(1)
@@ -92,13 +93,10 @@ class AudioUtils:
             wf.setframerate(rate)
             wf.writeframes(struct.pack('%dh' % len(data), *data))
 
-    def save_recordings(self, input_rec_buffer, output_rec_buffer):
-        input_filename = "input.wav"
-        output_filename = "output.wav"
-        fs_target = 16000
-        # 입력 오디오 저장
-        self.save_wav(input_filename, fs_target, np.concatenate(input_rec_buffer))
-        print(f"Input audio saved as {input_filename}")
-        # 출력 오디오 저장
-        self.save_wav(output_filename, fs_target, np.concatenate(output_rec_buffer))
-        print(f"Output audio saved as {output_filename}")
+    def save_audio(self, rec_buffer: list[np.ndarray], person_name: str, room_name: str, tag: str):
+        now = time.strftime('%Y-%m-%d_%H:%M:%S')
+        [date, now_time] = now.split('_')
+        os.makedirs(f"{self.save_audio_dir}/{date}/{room_name}", exist_ok=True)
+        input_filename = f"{self.save_audio_dir}/{date}/{room_name}/{tag}_{now_time}_{person_name}.wav"
+        self.save_wav(input_filename, self.RATE, np.concatenate(rec_buffer, axis=0))
+        aprint(f"Audio saved as {input_filename}")

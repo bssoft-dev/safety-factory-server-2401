@@ -18,7 +18,9 @@ class VoiceChat(AudioUtils):
         self.audio_buffers: Dict[str, Dict[int, deque]] = {} # {room_name: { client_id: 오디오버퍼 deque}}
         self.use_voice_enhance = True
         self.hear_me = False
-        self.save_audio = False
+        self.record_audio = False
+        self.save_audio_sec = 60
+        self.save_audio_len = self.RATE * self.save_audio_sec
         self.keep_test_room = True
         self.classify_event = False
         self.do_stt = True
@@ -34,9 +36,8 @@ class VoiceChat(AudioUtils):
         client_id = id(websocket)
         self.rooms[room_name].append(websocket)
         self.audio_buffers[room_name][client_id] = deque(maxlen=self.BUFFER_SIZE)
-        if self.save_audio:
-            self.input_rec_buffer[client_id] = []
-            self.output_rec_buffer[client_id] = []
+        self.input_rec_buffer[client_id] = []
+        self.output_rec_buffer[client_id] = []
         with Session(engine) as session:
             room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
             devices = session.exec(select(Devices).filter(Devices.device_id == device_id)).first()
@@ -58,6 +59,8 @@ class VoiceChat(AudioUtils):
             self.rooms[room_name].remove(websocket)
             del self.audio_buffers[room_name][client_id]
             del self.client_info[client_id]
+            del self.input_rec_buffer[client_id]
+            del self.output_rec_buffer[client_id]
             with Session(engine) as session:
                 room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
                 room.num_person = room.num_person - 1
@@ -112,8 +115,6 @@ class VoiceChat(AudioUtils):
                 # print(f"Received data from client {client_id}: {len(byte_data)}")
             except:
                 await self.exit_room(room_name, client_ws)
-                if self.save_audio:
-                    self.save_recordings(self.input_rec_buffer[client_id], self.output_rec_buffer[client_id])
                 # 보온팀 방이 비어있으면 방 삭제
                 if (not self.rooms[room_name]) and (room_name == '보온팀') and (not self.keep_test_room):
                    del self.rooms[room_name]
@@ -147,6 +148,12 @@ class VoiceChat(AudioUtils):
         await self.talk_to_room_runner(room_name, client_id, websocket)
     
     async def exit_room(self, room_name: str, websocket: WebSocket):
+        if self.record_audio:
+            client_id = id(websocket)
+            if len(self.input_rec_buffer[client_id]) > 0:
+                self.save_audio(self.input_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "input")
+            if len(self.output_rec_buffer[client_id]) > 0:
+                self.save_audio(self.output_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "output")
         client_id = self.remove_person_from_room(room_name, websocket)
         print(f"Client {client_id} exited room '{room_name}'")
 
@@ -159,7 +166,6 @@ class VoiceChat(AudioUtils):
                 room_buffer = self.audio_buffers[room_name]
                 combined_audio_int16 = []
                 active_clients = []
-                # read_buffer_len = []
                 min_length = float("inf")
 
                 # First: find minimum length of buffers
@@ -196,20 +202,28 @@ class VoiceChat(AudioUtils):
                             self.talk_to_each_client(
                                 combined_audio_int16, 
                                 exclude_idx, 
-                                self.rooms[room_name][ws_idx]
+                                self.rooms[room_name][ws_idx],
+                                room_name
                                 )
                             )
                 last_process_time = current_time
             await asyncio.sleep(0.01)
 
-    async def talk_to_each_client(self, combined_audio, exclude_client_idx, ws):
+    async def talk_to_each_client(self, combined_audio, exclude_client_idx, ws, room_name):
+        client_id = id(ws)
         processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
+        if self.record_audio:
+            self.input_rec_buffer[client_id].append(processed_data_int16)
+            if np.concatenate(self.input_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
+                self.save_audio(self.input_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "input")
+                self.input_rec_buffer[client_id] = []
         if self.use_voice_enhance:
             processed_data_int16 = self.voice_enhance(processed_data_int16)
         # # Apply soft clipping
         # processed_data_int16 = self.soft_clip(processed_data_int16 / 32767) * 32767
-        client_id = id(ws)
         await self.send_audio(ws, client_id, processed_data_int16)
-        if self.save_audio:
-            self.input_rec_buffer[client_id].append(combined_audio[exclude_client_idx])
+        if self.record_audio:
             self.output_rec_buffer[client_id].append(processed_data_int16)
+            if np.concatenate(self.input_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
+                self.save_audio(self.output_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "output")
+                self.output_rec_buffer[client_id] = []
