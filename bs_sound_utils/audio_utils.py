@@ -18,11 +18,11 @@ class AudioUtils:
         self.FRAME_SIZE = 2048
         self.BUFFER_SIZE = int(self.RATE / self.FRAME_SIZE) * 1 # buffer size about 1 sec
         self.save_audio_dir = "./recordings"
-        self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 4 # Sync interval for processing audio is about 0.512 sec
-        device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 2 # Sync interval for processing audio is about 0.512 sec
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.b, self.a = self.butter_lowpass(2000, self.RATE, order=10)
-        self.voice_enhancer = VoiceEnhancer(device)
-        self.event_classifier = EventClassifier()
+        self.voice_enhancer = VoiceEnhancer(self.device)
+        self.event_classifier = EventClassifier(self.device)
         self.stt = SttProcessor()
         
     def butter_lowpass(self, cutoff, fs, order=10):
@@ -39,6 +39,12 @@ class AudioUtils:
 
     def soft_clip(self, x, threshold=0.9):
         return np.tanh(x / threshold) * threshold
+    
+    def int16_to_torch_float32(self, in_data: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(in_data).to(device=self.device, dtype=torch.float32) / 32768.0
+    
+    def torch_float32_to_int16(self, in_data: torch.Tensor) -> np.ndarray:
+        return (in_data*32767).cpu().numpy().astype(np.int16)
 
     def int16_to_float32(self, data: np.ndarray) -> np.ndarray:
         if np.max(np.abs(data)) > 32768:
@@ -63,14 +69,22 @@ class AudioUtils:
         # Audio mixing: use average
         return np.mean(np.array(selected_audio), axis=0, dtype=dtype)
     
-    async def classify_audio(self, send_data: bytes, room_name: str):
-        await self.event_classifier.classify_audio(send_data, room_name)
+    async def classify_audio(self, audio_data: bytes, room_name: str):
+        audio_data = self.int16_to_float32(audio_data)
+        await self.event_classifier.infer(audio_data, room_name)
     
     async def stt_audio(self, send_data: bytes, room_name: str):
         await self.stt.send_audio(send_data, room_name)
 
-    def voice_enhance(self, audio_data):
-        return self.voice_enhancer.enhance(audio_data)
+    def voice_enhance(self, in_data: np.ndarray) -> np.ndarray:
+        try:
+            print("Voice enhance - denoising")
+            torch_data = self.int16_to_torch_float32(in_data)
+            enhanced_audio = self.voice_enhancer.denoise(torch_data)
+            return self.torch_float32_to_int16(enhanced_audio)
+        except Exception as e:
+            print(f"Error in voice enhance: {e}")
+            return in_data
     
     async def send_audio(self, ws, client_id, processed_data_int16):
         try:
