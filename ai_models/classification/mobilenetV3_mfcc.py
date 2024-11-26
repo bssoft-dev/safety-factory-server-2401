@@ -54,7 +54,7 @@ class MobileNetV3_MFCC(nn.Module):
     def __init__(self, num_classes=4, width_mult=1.):
         super(MobileNetV3_MFCC, self).__init__()
         block = InvertedResidual
-        input_channel = 32
+        input_channel = 16
         last_channel = 1280
         inverted_residual_setting = [
             # t, c, n, s

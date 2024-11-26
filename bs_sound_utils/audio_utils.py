@@ -18,7 +18,7 @@ class AudioUtils:
         self.FRAME_SIZE = 2048
         self.BUFFER_SIZE = int(self.RATE / self.FRAME_SIZE) * 1 # buffer size about 1 sec
         self.save_audio_dir = "./recordings"
-        self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 2 # Sync interval for processing audio is about 0.512 sec
+        self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 4 # Sync interval for processing audio is about 0.512 sec
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.b, self.a = self.butter_lowpass(2000, self.RATE, order=10)
         self.voice_enhancer = VoiceEnhancer(self.device)
@@ -56,31 +56,53 @@ class AudioUtils:
             data = data / np.max(np.abs(data))
         return np.array(data * 32767).astype("int16")
     
+    def mix_audio_to_torch(self, data: list[np.ndarray], exclude_idx: int = None) -> torch.Tensor:
+        if exclude_idx != None:
+            if len(data) > 1:
+                del data[exclude_idx]
+        try: 
+            return torch.mean(torch.from_numpy(np.array(data)).to(device=self.device, dtype=torch.float32), dim=0) / 32768.0
+        except Exception as e:
+            print(f"Error in mix_audio_to_torch: {e}")
+            return torch.zeros(16000).to(device=self.device, dtype=torch.float32)
+    
     def mix_audio(self, data: list[np.ndarray], exclude_idx: int = None) -> np.ndarray:
         dtype = data[0].dtype
-        selected_audio = data.copy()
+        # selected_audio = data.copy()
         if exclude_idx != None:
-            if len(selected_audio) > 1:
+            if len(data) > 1:
                 # Exclude client itself's audio from mixing
-                del selected_audio[exclude_idx]
+                del data[exclude_idx]
             else:
                 # If there is only one client, mute its audio
-                selected_audio = [np.zeros_like(selected_audio[0])]
+                data = [np.zeros_like(data[0])]
         # Audio mixing: use average
-        return np.mean(np.array(selected_audio), axis=0, dtype=dtype)
+        return np.mean(np.array(data), axis=0, dtype=dtype)
     
-    async def classify_audio(self, audio_data: bytes, room_name: str):
-        audio_data = self.int16_to_float32(audio_data)
+    async def classify_audio(self, audio: list[np.ndarray], room_name: str):
+        processed_data_int16 = self.mix_audio(audio)
+        audio_data = self.int16_to_float32(processed_data_int16)
         await self.event_classifier.infer(audio_data, room_name)
     
-    async def stt_audio(self, send_data: bytes, room_name: str):
+    async def stt_audio(self, data: list[np.ndarray], room_name: str):
+        processed_data_int16 = self.mix_audio(data)
+        send_data = processed_data_int16.tobytes()
         await self.stt.send_audio(send_data, room_name)
 
-    def voice_enhance(self, in_data: np.ndarray) -> np.ndarray:
+    # def voice_enhance(self, in_data: np.ndarray) -> np.ndarray:
+    #     try:
+    #         print("Voice enhance - denoising")
+    #         torch_data = self.int16_to_torch_float32(in_data)
+    #         enhanced_audio = self.voice_enhancer.denoise(torch_data)
+    #         return self.torch_float32_to_int16(enhanced_audio)
+    #     except Exception as e:
+    #         print(f"Error in voice enhance: {e}")
+    #         return in_data
+
+    def voice_enhance(self, in_data: torch.Tensor) -> np.ndarray:
         try:
-            print("Voice enhance - denoising")
-            torch_data = self.int16_to_torch_float32(in_data)
-            enhanced_audio = self.voice_enhancer.denoise(torch_data)
+            #print("Voice enhance - denoising")
+            enhanced_audio = self.voice_enhancer.denoise(in_data)
             return self.torch_float32_to_int16(enhanced_audio)
         except Exception as e:
             print(f"Error in voice enhance: {e}")

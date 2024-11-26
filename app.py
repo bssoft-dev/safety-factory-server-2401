@@ -106,3 +106,4 @@ async def read_root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=24015, reload=True, log_config='utils/log_conf.json')
+    #uvicorn.run("app:app", host="0.0.0.0", port=24015, log_config='utils/log_conf.json')

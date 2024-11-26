@@ -19,7 +19,7 @@ class VoiceChat(AudioUtils):
         self.use_voice_enhance = True
         self.hear_me = False
         self.record_audio = False
-        self.save_audio_sec = 60
+        self.save_audio_sec = 30
         self.save_audio_len = self.RATE * self.save_audio_sec
         self.keep_test_room = True
         self.classify_event = False
@@ -178,20 +178,15 @@ class VoiceChat(AudioUtils):
                 if len(active_clients) > 0:
                     print(f"Active clients: {len(active_clients)}")
                     for ws_idx, client_id in active_clients:
-                        print(f"Client {client_id} buffer length: {len(room_buffer[client_id])}")
+                        # print(f"Client {client_id} buffer length: {len(room_buffer[client_id])}")
                         buffers = []
                         for _ in range(min_length):
                             buffers.append(room_buffer[client_id].popleft())
                         combined_audio_int16.append(np.array(buffers, dtype=self.FORMAT).reshape(-1))
-                        # if self.use_voice_enhance:
-                        #     combined_audio_int16[i] = apply_lowpass_filter(combined_audio_int16[i])
-                    if self.classify_event or self.do_stt:
-                        processed_data_int16 = self.mix_audio(combined_audio_int16)
-                        send_data = processed_data_int16.tobytes()
-                        if self.classify_event:
-                            asyncio.create_task(self.event_classifier.classify_audio(send_data, room_name))
-                        if self.do_stt:
-                            asyncio.create_task(self.stt.send_audio(send_data, room_name))
+                    if self.classify_event:
+                        asyncio.create_task(self.classify_audio(combined_audio_int16, room_name))
+                    if self.do_stt:
+                        asyncio.create_task(self.stt_audio(combined_audio_int16, room_name))
                 # Third: Mix audio and send to all clients non-blocking
                     for audio_idx, (ws_idx, client_id) in enumerate(active_clients):
                         if self.hear_me == True:
@@ -207,11 +202,14 @@ class VoiceChat(AudioUtils):
                                 )
                             )
                 last_process_time = current_time
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
 
     async def talk_to_each_client(self, combined_audio, exclude_client_idx, ws, room_name):
         client_id = id(ws)
-        processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
+        if not self.use_voice_enhance:
+            processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
+        else:
+            processed_data_int16 = self.mix_audio_to_torch(combined_audio, exclude_client_idx)
         if self.record_audio:
             self.input_rec_buffer[client_id].append(processed_data_int16)
             if np.concatenate(self.input_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
@@ -219,8 +217,6 @@ class VoiceChat(AudioUtils):
                 self.input_rec_buffer[client_id] = []
         if self.use_voice_enhance:
             processed_data_int16 = self.voice_enhance(processed_data_int16)
-        # # Apply soft clipping
-        # processed_data_int16 = self.soft_clip(processed_data_int16 / 32767) * 32767
         await self.send_audio(ws, client_id, processed_data_int16)
         if self.record_audio:
             self.output_rec_buffer[client_id].append(processed_data_int16)

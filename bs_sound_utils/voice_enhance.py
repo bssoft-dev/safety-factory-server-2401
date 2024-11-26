@@ -7,7 +7,7 @@ class VoiceEnhancer:
     def __init__(self, device):
         self.device = device
         self.dry = 0.04
-        self.num_frames = 1
+        self.num_frames = 2
         self.model = Demucs(hidden = 64, sample_rate=16_000)
         state_dict = torch.load("ai_models/speech_enhancement/dns64-a7761ff99a7d5bb6.th", 'cpu')
         self.model.load_state_dict(state_dict)

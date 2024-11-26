@@ -3,6 +3,7 @@ log.txt
 env.py
 logs/
 recordings/
+tests/sounds/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

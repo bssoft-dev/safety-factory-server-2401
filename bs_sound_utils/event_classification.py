@@ -54,15 +54,16 @@ class EventClassifier:
             # 결과 반환
             predicted_label = self.class_names[predicted_class]
             confidence = probabilities[0][predicted_class].item()
-            if confidence < 0.8:
+            print(f"predicted_label: {predicted_label}, confidence: {confidence}")
+            if confidence < 0.6:
                 predicted_label = "일반"
             if predicted_label != "일반":
                 with Session(engine) as session:
                     session.add(Events(room_name=room_name, event=predicted_label, time=datetime.now()))
                     session.commit()
-                try:
-                    await sms_send(SMS_TEST_SEND_LIST, f"{room_name}에서 {predicted_label} 이벤트가 발생했습니다.")
-                except Exception as e:
-                    print(f"SMS send error: {e}")
+                # try:
+                #     await sms_send(SMS_TEST_SEND_LIST, f"{room_name}에서 {predicted_label} 이벤트가 발생했습니다.")
+                # except Exception as e:
+                #     print(f"SMS send error: {e}")
             
             return predicted_label, confidence
