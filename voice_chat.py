@@ -1,6 +1,5 @@
 import numpy as np
 from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict
 import asyncio
 from collections import deque
 from database import engine
@@ -9,24 +8,19 @@ from models import Rooms, Devices
 from utils.sys import aprint
 from bs_sound_utils.audio_utils import AudioUtils
 
-
 class VoiceChat(AudioUtils):
     def __init__(self):
         super().__init__()
-        self.rooms: Dict[str, list[WebSocket]] = {} # {room_name : [웹소켓 객체 set]}
-        self.client_info: Dict[int, dict] = {} # {client_id: {dtype: , sr: , is_webbrowser: , person_name: }}
-        self.audio_buffers: Dict[str, Dict[int, deque]] = {} # {room_name: { client_id: 오디오버퍼 deque}}
-        self.use_voice_enhance = True
+        self.rooms: dict[str, list[WebSocket]] = {} # {room_name : [웹소켓 객체 set]}
+        self.client_info: dict[int, dict] = {} # {client_id: {dtype: , sr: , is_webbrowser: , person_name: }}
+        self.audio_buffers: dict[str, dict[int, deque]] = {} # {room_name: { client_id: 오디오버퍼 deque}}
+        self.use_voice_enhance = False
         self.hear_me = False
-        self.record_audio = False
-        self.save_audio_sec = 30
-        self.save_audio_len = self.RATE * self.save_audio_sec
+        self.record_audio = True
         self.keep_test_room = True
-        self.classify_event = False
+        self.classify_event = True
         self.do_stt = True
         self.enhance_volume = 0
-        self.input_rec_buffer: Dict[int, list] = {} # client_id, 오디오 버퍼
-        self.output_rec_buffer: Dict[int, list] = {} # client_id, 오디오 버퍼
 
     def is_webbrowser(self, websocket: WebSocket):
         headers = websocket.headers
@@ -38,6 +32,7 @@ class VoiceChat(AudioUtils):
         self.audio_buffers[room_name][client_id] = deque(maxlen=self.BUFFER_SIZE)
         self.input_rec_buffer[client_id] = []
         self.output_rec_buffer[client_id] = []
+        self.voice_enhancer.add_streamer(client_id)
         with Session(engine) as session:
             room = session.exec(select(Rooms).filter(Rooms.room_name == room_name)).first()
             devices = session.exec(select(Devices).filter(Devices.device_id == device_id)).first()
@@ -55,6 +50,7 @@ class VoiceChat(AudioUtils):
     def remove_person_from_room(self, room_name: str, websocket: WebSocket):
         client_id = id(websocket)
         person_name = self.client_info[client_id]["person_name"]
+        self.voice_enhancer.remove_streamer(client_id)
         if self.rooms.get(room_name):
             self.rooms[room_name].remove(websocket)
             del self.audio_buffers[room_name][client_id]
@@ -108,14 +104,18 @@ class VoiceChat(AudioUtils):
             session.commit()
         return {"message": f"Room '{room_name}' deleted successfully"}
     
-    async def talk_to_room_runner(self, room_name: str, client_id: int, client_ws: WebSocket):
+    async def receive_voice_runner(self, room_name: str, client_id: int, client_ws: WebSocket):
         while True:
             try:
-                byte_data = await client_ws.receive_bytes()
+                byte_data = await asyncio.wait_for(client_ws.receive_bytes(), timeout=0.5)
+                # byte_data = await client_ws.receive_bytes()
                 # print(f"Received data from client {client_id}: {len(byte_data)}")
+            except asyncio.TimeoutError:
+                print(f"[{room_name}] TimeoutError: {client_id}")
+                continue
             except:
                 await self.exit_room(room_name, client_ws)
-                # 보온팀 방이 비어있으면 방 삭제
+                # 테스트옵션이 없을 때 보온팀 방이 비어있으면 방 삭제
                 if (not self.rooms[room_name]) and (room_name == '보온팀') and (not self.keep_test_room):
                    del self.rooms[room_name]
                    del self.audio_buffers[room_name]  
@@ -145,15 +145,23 @@ class VoiceChat(AudioUtils):
         await websocket.accept()
         client_id = self.add_person_to_room(room_name, sr, dtype, device_id, websocket)
         print(f"Client {client_id} joined room '{room_name}'")
-        await self.talk_to_room_runner(room_name, client_id, websocket)
+        await self.receive_voice_runner(room_name, client_id, websocket)
     
     async def exit_room(self, room_name: str, websocket: WebSocket):
         if self.record_audio:
             client_id = id(websocket)
             if len(self.input_rec_buffer[client_id]) > 0:
-                self.save_audio(self.input_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "input")
+                self.save_audio(
+                    self.input_rec_buffer[client_id], 
+                    self.client_info[client_id]["person_name"], 
+                    room_name, 
+                    "input_exit")
             if len(self.output_rec_buffer[client_id]) > 0:
-                self.save_audio(self.output_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "output")
+                self.save_audio(
+                    self.output_rec_buffer[client_id], 
+                    self.client_info[client_id]["person_name"], 
+                    room_name, 
+                    "output_exit")
         client_id = self.remove_person_from_room(room_name, websocket)
         print(f"Client {client_id} exited room '{room_name}'")
 
@@ -176,9 +184,8 @@ class VoiceChat(AudioUtils):
                         min_length = min(min_length, len(room_buffer[client_id]))
                 # Second: read audio data from buffer and all combine
                 if len(active_clients) > 0:
-                    print(f"Active clients: {len(active_clients)}")
                     for ws_idx, client_id in active_clients:
-                        # print(f"Client {client_id} buffer length: {len(room_buffer[client_id])}")
+                        # print(f"[{room_name}] Remaining buffer - {self.client_info[client_id]['person_name']} : {len(room_buffer[client_id])} ")
                         buffers = []
                         for _ in range(min_length):
                             buffers.append(room_buffer[client_id].popleft())
@@ -201,25 +208,28 @@ class VoiceChat(AudioUtils):
                                 room_name
                                 )
                             )
+                # print(f"[{room_name}] Processed audio time: {asyncio.get_event_loop().time() - current_time}")
                 last_process_time = current_time
-            await asyncio.sleep(0.1)
-
+            await asyncio.sleep(0.05)
+            
     async def talk_to_each_client(self, combined_audio, exclude_client_idx, ws, room_name):
         client_id = id(ws)
-        if not self.use_voice_enhance:
-            processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
-        else:
-            processed_data_int16 = self.mix_audio_to_torch(combined_audio, exclude_client_idx)
-        if self.record_audio:
-            self.input_rec_buffer[client_id].append(processed_data_int16)
-            if np.concatenate(self.input_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
-                self.save_audio(self.input_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "input")
-                self.input_rec_buffer[client_id] = []
+        person_name = self.client_info[client_id]["person_name"]
         if self.use_voice_enhance:
-            processed_data_int16 = self.voice_enhance(processed_data_int16)
-        await self.send_audio(ws, client_id, processed_data_int16)
-        if self.record_audio:
-            self.output_rec_buffer[client_id].append(processed_data_int16)
-            if np.concatenate(self.output_rec_buffer[client_id], axis=0).shape[0] >= self.save_audio_len:
-                self.save_audio(self.output_rec_buffer[client_id], self.client_info[client_id]["person_name"], room_name, "output")
-                self.output_rec_buffer[client_id] = []
+            try:
+                processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
+                enhanced_int16 = self.voice_enhance(processed_data_int16, client_id)
+                # processed_data_float32_tensor = self.mix_audio_to_torch(combined_audio, exclude_client_idx)
+                # enhanced_int16 = self.voice_enhance(processed_data_float32_tensor, client_id)
+            except Exception as e:
+                aprint(f"Error in voice enhance: {e}")
+            await self.send_audio(ws, enhanced_int16, self.client_info[client_id]["dtype"], self.client_info[client_id]["sr"])
+            if self.record_audio:
+                # processed_data_int16 = self.torch_float32_to_int16(processed_data_float32_tensor)
+                self.input_rec_buffer[client_id] = self.recording_audio(self.input_rec_buffer[client_id], processed_data_int16, room_name, person_name, "input")
+                self.output_rec_buffer[client_id] = self.recording_audio(self.output_rec_buffer[client_id], enhanced_int16, room_name, person_name, "output")
+        else:
+            processed_data_int16 = self.mix_audio(combined_audio, exclude_client_idx)
+            await self.send_audio(ws, processed_data_int16, self.client_info[client_id]["dtype"], self.client_info[client_id]["sr"])
+            if self.record_audio:
+                self.output_rec_buffer[client_id] = self.recording_audio(self.output_rec_buffer[client_id], processed_data_int16, room_name, person_name, "output")

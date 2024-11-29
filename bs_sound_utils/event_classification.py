@@ -14,7 +14,7 @@ class EventClassifier:
     def __init__(self, device):
         self.device = device
         self.model = mobilenet_v3_mfcc(num_classes=4)
-        self.model.load_state_dict(torch.load('ai_models/classification/best_mobilenetV3_mfcc_model.pth'))
+        self.model.load_state_dict(torch.load('ai_models/classification/best_mobilenetV3_mfcc_model.pth', weights_only=True))
         self.model.to(device)
         self.class_names = ['경보음', '비명', '일반', '충격깨짐소리']
         self.model.eval()
@@ -35,7 +35,6 @@ class EventClassifier:
         return mfcc
     
     async def infer(self, npaudio: np.ndarray, room_name: str):
-        """단일 WAV 파일에 대한 예측을 수행합니다."""
         if len(self.buffer) < 2:
             self.buffer.append(npaudio)
             return None, None

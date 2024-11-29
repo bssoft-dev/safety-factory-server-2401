@@ -4,7 +4,7 @@ from starlette.middleware.cors import CORSMiddleware
 from voice_chat import VoiceChat
 from database import create_db_and_tables, engine, clear_room_data
 from sqlmodel import Session, select
-from models import Rooms
+from models import Rooms, Events
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -36,6 +36,12 @@ alert_info = {"warning": False, "message": ""}
 async def get_info_rooms():
     with Session(engine) as session:
         return session.exec(select(Rooms)).all()
+
+
+@app.get("/v1/events")
+async def get_info_events():
+    with Session(engine) as session:
+        return session.exec(select(Events)).all()
     
 @app.post("/v1/create_room")
 async def create_room(room: Room):
