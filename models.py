@@ -1,8 +1,12 @@
-from typing import Optional, List
+from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy import UniqueConstraint
-from sqlmodel import Field, SQLModel, MetaData
+from sqlmodel import Field, SQLModel
 
 db_schema = "safety_factory_2401"
+
+class Room(BaseModel):
+    room_name: str
 
 class Rooms(SQLModel, table=True):
     __table_args__ = {'schema': db_schema}

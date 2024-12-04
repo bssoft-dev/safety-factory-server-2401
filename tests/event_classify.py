@@ -1,18 +1,18 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bs_sound_utils.event_classification import mobilenet_v3_mfcc
+from services.event_classification import mobilenet_v3_mfcc
 import torch, numpy as np, librosa
 import os
 
 def get_mfcc(npaudio: np.ndarray, n_mfcc=40, max_len=50, sr=16000):
+    # MFCC 변환
     try:
         mfcc = librosa.feature.mfcc(y=npaudio, sr=sr, n_mfcc=n_mfcc)
         npaudio = []
     except Exception as e:
         print(f"Error getting MFCC: {e}")
         return None
-    # MFCC의 길이를 max_len으로 맞추기
     if mfcc.shape[1] < max_len:
         mfcc = np.pad(mfcc, ((0, 0), (0, max_len - mfcc.shape[1])), mode='constant')
     else:
@@ -33,7 +33,6 @@ def infer(npaudio: np.ndarray, model, class_names, device):
     # 결과 반환
     predicted_label = class_names[predicted_class]
     confidence = probabilities[0][predicted_class].item()
-    # print(f"predicted_label: {predicted_label}, confidence: {confidence}")
     
     return predicted_label, confidence
     
@@ -44,20 +43,27 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load('ai_models/classification/best_mobilenetV3_mfcc_model.pth', weights_only=True))
     model.to(device)
     class_names = ['경보음', '비명', '일반', '충격깨짐소리']
+    eng_class_names = ['siren', 'scream', 'normal', 'crash']
     model.eval()
     
-    BASE_DIR = "tests/sounds/event_class"
-    correct = 0
-    total = 0
+    BASE_DIR = "tests/sounds/classification_test"
+    total = 0; correct = 0
+    print("========  Emergency Event Classification Test  ========")
     for i in range(4):
         ground_truth = class_names[i]
+        sub_total = 0; sub_correct = 0
         for wav in os.listdir(os.path.join(BASE_DIR, ground_truth)):
             if wav.endswith(".wav"):
-                npaudio = librosa.load(os.path.join(BASE_DIR, ground_truth, wav), offset=0.05, sr=16000)[0]
-                # print(f"file: {wav}")
-                res = infer(npaudio, model, class_names, device)
-                if res[0] == ground_truth:
-                    correct += 1
-                total += 1
-        print(f"{ground_truth} accuracy: {correct / total}")
-    print(f"total accuracy: {correct / total}")
+                npaudio = librosa.load(os.path.join(BASE_DIR, ground_truth, wav), offset=0.02, sr=16000)[0]
+                res = infer(npaudio, model, eng_class_names, device)
+                if res[0] == eng_class_names[i]:
+                    sub_correct += 1
+                sub_total += 1
+                print(f"{sub_total} {wav}, Predict: {res[0]}, Match: {res[0] == eng_class_names[i]}")
+        print("--------------------------------")
+        print(f"{ground_truth} accuracy: {sub_correct / sub_total:.3f}")
+        print("--------------------------------")
+        total += sub_total
+        correct += sub_correct
+    print("--------------------------------")
+    print(f"total accuracy: {correct / total: .3f}")

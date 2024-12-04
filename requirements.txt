@@ -6,3 +6,4 @@ speechbrain==1.0.0
 psycopg2-binary
 sqlmodel
 aiohttp
+aiofiles

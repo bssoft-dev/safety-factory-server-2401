@@ -33,7 +33,7 @@ def denoise_wav_file(input_path, output_path, model):
 if __name__ == "__main__":
     SIG_DIR = "tests/sounds/before_noise"
     NOISY_DIR = "tests/sounds/after_noise"
-    NOISE_DIR = "tests/sounds/noise/trim"
+    NOISE_DIR = "tests/sounds/noise/noise_clip"
     TARGET_DIR = "tests/sounds/after_noise_denoised"
     
     print("Loading model...")
@@ -69,7 +69,8 @@ if __name__ == "__main__":
                 denoised_sdr = sdr_denoised(signal, denoised)
                 noisy_sdrs.append(noisy_sdr)
                 denoised_sdrs.append(denoised_sdr)
-                print(f"{counter}. file: speech{speech_num}_{video_wav}, SDR noisy: {noisy_sdr}, SDR denoised: {denoised_sdr}")
+                print(f"{counter}. 목소리: speech{speech_num} 노이즈: {video_wav}, 소음제거 전 SDR: {noisy_sdr: .3f}, 소음제거 후 SDR: {denoised_sdr: .3f}")
             counter += 1
     
-    print(f"SDR for noisy: {np.mean(noisy_sdrs)}, SDR for denoised: {np.mean(denoised_sdrs)}")
+    print("-----------------------------------------------------------------------------------")
+    print(f"최종결과 - 소음제거 전 SDR: {np.mean(noisy_sdrs): .3f}, 소음제거 후 SDR: {np.mean(denoised_sdrs): .3f}")

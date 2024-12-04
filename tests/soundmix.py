@@ -3,7 +3,6 @@ import soundfile as sf
 import os
 from pydub import AudioSegment
 
-skip_sec = 4
 sr = 16000
 
 trim_cases = {
@@ -14,6 +13,11 @@ trim_cases = {
     5: [[0, 6], [16, 22]],
     6: [[0, 6], [6, 12]]
 }
+
+SIG_DIR = "tests/sounds/before_noise"
+NOISE_DIR = "tests/sounds/noise"
+TRIM_NOISE_DIR = "tests/sounds/noise/noise_clip"
+TARGET_DIR = "tests/sounds/after_noise"
 
 def trim_audio_with_timestamps(audio_path: str, output_path: str, timestamps: list[int]):
     audio = AudioSegment.from_file(audio_path)
@@ -42,21 +46,16 @@ def mix_audio_with_snr(signal: np.ndarray, noise: np.ndarray, snr: float):
     # mix the signals
     return a * signal + b * noise
 
-
-if __name__ == "__main__":
-    SIG_DIR = "sounds/before_noise"
-    NOISE_DIR = "sounds/noise"
-    TRIM_NOISE_DIR = "sounds/noise/trim"
-    TARGET_DIR = "sounds/after_noise"
+def trim_noise():
     os.makedirs(TRIM_NOISE_DIR, exist_ok=True)
-    
     for case_id, timestamps in trim_cases.items():
         print(timestamps)
         for atime in timestamps:
             start = atime[0]
             end = atime[1]
             trim_audio_with_timestamps(os.path.join(NOISE_DIR, f"video{case_id}.wav"), os.path.join(TRIM_NOISE_DIR, f"video{case_id}_{start}_{end}.wav"), [start, end])
-    
+
+def mix_audio():
     os.makedirs(TARGET_DIR, exist_ok=True)
     for sig_file in os.listdir(SIG_DIR):
         if not sig_file.endswith(".wav"):
@@ -71,3 +70,7 @@ if __name__ == "__main__":
             if mixed.shape[1] > 1:
                 mixed = mixed.mean(axis=1).reshape(-1, 1)
             sf.write(os.path.join(TARGET_DIR, f"{sig_file.replace('.wav', '')}_{noise_file.replace('.wav', '')}.wav"), mixed, sr)
+
+if __name__ == "__main__":
+    # trim_noise() # 기존 버전은 파일명을 비디오 번호와 타임스탬프로 표시했으나 현재는 파일명을 임의로 바꿨음
+    mix_audio()
