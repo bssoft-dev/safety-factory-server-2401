@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from database import create_db_and_tables, engine, clear_room_data
 from sqlmodel import Session, select
-from models import Rooms, Events
+from models import Rooms, Events, Devices
 from contextlib import asynccontextmanager
 from utils.sys import aprint
 from routers.log_mon import log_mon
@@ -48,10 +48,17 @@ async def get_info_events():
 async def read_root():
     return {"message": "다중 채팅방 지원 실시간 오디오 처리 서버"}
 
-@app.get("/v1/warning/{device_id}/{message}")
-async def get_warning(device_id: str, message: str):
-    aprint(f"{datetime.datetime.now()} warning: {device_id} {message}", f"logs/warning.log")
-    return {"message": message}
+@app.post("/v1/warning")
+async def post_warning(data: Events):
+    with Session(engine) as session:
+        query = select(Devices).where(Devices.device_id == data.device_id)
+        device = session.exec(query).first()
+        name = device.owner
+    aprint(f"{data.time} warning: {name}, {data.event}", f"logs/warning.log")
+    with Session(engine) as session:
+        session.add(Events(device_id=data.device_id, event=data.event, time=data.time))
+        session.commit()
+    return {"message": data.event}
 
 if __name__ == "__main__":
     import uvicorn
