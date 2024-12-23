@@ -53,7 +53,7 @@ class EventClassifier:
             # 결과 반환
             predicted_label = self.class_names[predicted_class]
             confidence = probabilities[0][predicted_class].item()
-            print(f"predicted_label: {predicted_label}, confidence: {confidence}")
+            # print(f"predicted_label: {predicted_label}, confidence: {confidence}")
             # if  ((predicted_label != "비명") and (confidence < 0.9)) or ((predicted_label == "충격깨짐소리") and (confidence < 0.9)):
             if  ((predicted_label == "비명") and (confidence < 0.9)) or ((predicted_label == "경보음") and (confidence < 0.8)):
                 predicted_label = "일반"

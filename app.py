@@ -41,7 +41,7 @@ async def get_info_rooms():
 @app.get("/v1/events")
 async def get_info_events():
     with Session(engine) as session:
-        return session.exec(select(Events)).all()
+        return session.exec(select(Events).order_by(Events.id.desc()).limit(20)).all()
 
 
 @app.get("/")

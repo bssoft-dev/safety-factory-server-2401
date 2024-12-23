@@ -20,7 +20,7 @@ class VoiceChat(AudioUtils):
         self.record_audio = True
         self.keep_test_room = True
         self.classify_event = True
-        self.do_stt = False
+        self.do_stt = True
         self.enhance_volume = 0
 
     def is_webbrowser(self, websocket: WebSocket):
@@ -116,7 +116,8 @@ class VoiceChat(AudioUtils):
             except asyncio.TimeoutError:
                 print(f"[{room_name} 에러] TimeoutError: {client_id}")
                 continue
-            except:
+            except Exception as e:
+                print(f"[{room_name} 에러] 오류발생: {client_id}, {e}")
                 await self.exit_room(room_name, client_ws)
                 # 테스트옵션이 없을 때 보온팀 방이 비어있으면 방 삭제
                 if (not self.rooms[room_name]) and (room_name == '보온팀') and (not self.keep_test_room):
@@ -191,7 +192,7 @@ class VoiceChat(AudioUtils):
                 if min_length == float("inf"):
                     await asyncio.sleep(0.01)
                     continue
-                print(f"Min length: {min_length}")
+                # print(f"Min length: {min_length}")
                 # Second: read audio data from buffer and all combine
                 if len(active_clients) > 0:
                     for ws_idx, client_id in active_clients:

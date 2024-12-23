@@ -16,8 +16,8 @@ class SttProcessor:
                 async with http_session.post(f"{self.infer_url}/{room_name}", data=audio_data, headers=self.byte_headers) as res:
                     if res.status == 200:
                         data = await res.json()
-                        print(f"STT: {data}")
                         if data["result"] != "":
+                            print(f"STT: {data}")
                             self.text_remain_counter = min(len(data["result"])//5, 15)
                         else:
                             self.text_remain_counter = self.text_remain_counter - 1

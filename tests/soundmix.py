@@ -14,10 +14,6 @@ trim_cases = {
     6: [[0, 6], [6, 12]]
 }
 
-SIG_DIR = "tests/sounds/before_noise"
-NOISE_DIR = "tests/sounds/noise"
-TRIM_NOISE_DIR = "tests/sounds/noise/noise_clip"
-TARGET_DIR = "tests/sounds/after_noise"
 
 def trim_audio_with_timestamps(audio_path: str, output_path: str, timestamps: list[int]):
     audio = AudioSegment.from_file(audio_path)
@@ -46,30 +42,30 @@ def mix_audio_with_snr(signal: np.ndarray, noise: np.ndarray, snr: float):
     # mix the signals
     return a * signal + b * noise
 
-def trim_noise():
-    os.makedirs(TRIM_NOISE_DIR, exist_ok=True)
+def trim_noise(trim_noise_dir = "tests/sounds/noise/noise_clip", noise_dir = "tests/sounds/noise"):
+    os.makedirs(trim_noise_dir, exist_ok=True)
     for case_id, timestamps in trim_cases.items():
         print(timestamps)
         for atime in timestamps:
             start = atime[0]
             end = atime[1]
-            trim_audio_with_timestamps(os.path.join(NOISE_DIR, f"video{case_id}.wav"), os.path.join(TRIM_NOISE_DIR, f"video{case_id}_{start}_{end}.wav"), [start, end])
+            trim_audio_with_timestamps(os.path.join(noise_dir, f"video{case_id}.wav"), os.path.join(trim_noise_dir, f"video{case_id}_{start}_{end}.wav"), [start, end])
 
-def mix_audio():
-    os.makedirs(TARGET_DIR, exist_ok=True)
-    for sig_file in os.listdir(SIG_DIR):
+def mix_audio(sig_dir = "tests/sounds/before_noise", trim_noise_dir = "tests/sounds/noise/noise_clip", target_dir = "tests/sounds/after_noise"):
+    os.makedirs(target_dir, exist_ok=True)
+    for sig_file in os.listdir(sig_dir):
         if not sig_file.endswith(".wav"):
             continue
-        for noise_file in os.listdir(TRIM_NOISE_DIR):
+        for noise_file in os.listdir(trim_noise_dir):
             if not noise_file.endswith(".wav"):
                 continue
-            signal, sr = sf.read(os.path.join(SIG_DIR, sig_file))
-            noise, sr = sf.read(os.path.join(TRIM_NOISE_DIR, noise_file))
+            signal, sr = sf.read(os.path.join(sig_dir, sig_file))
+            noise, sr = sf.read(os.path.join(trim_noise_dir, noise_file))
             mixed = mix_audio_with_snr(signal, noise, -3)
             # reshape if the signal is stereo
             if mixed.shape[1] > 1:
                 mixed = mixed.mean(axis=1).reshape(-1, 1)
-            sf.write(os.path.join(TARGET_DIR, f"{sig_file.replace('.wav', '')}_{noise_file.replace('.wav', '')}.wav"), mixed, sr)
+            sf.write(os.path.join(target_dir, f"{sig_file.replace('.wav', '')}_{noise_file.replace('.wav', '')}.wav"), mixed, sr)
 
 if __name__ == "__main__":
     # trim_noise() # 기존 버전은 파일명을 비디오 번호와 타임스탬프로 표시했으나 현재는 파일명을 임의로 바꿨음

@@ -1,3 +1,3 @@
 #!/bin/bash
-# conda activate fastapi_py311
+# conda activate safety-server
 python app.py &> log.txt &
