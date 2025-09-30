@@ -16,8 +16,8 @@ communication_mode = "livekit"
 
 # LiveKit 서버 설정
 room_name = "safety-room"
-livekit_url = "ws://192.168.1.100:7880"
-api_base_url = "http://192.168.1.100:24015"
+livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+api_base_url = "https://safety-server.bs-soft.co.kr:24015"
 
 # 참가자 정보
 participant_name = "RaspberryPi-001"
@@ -32,9 +32,9 @@ participant_identity = "raspberry-001"
 # livekit_url = "ws://192.168.1.100:7880"
 # api_base_url = "http://192.168.1.100:24015"
 
-# 인터넷 사용 시 (HTTPS/WSS 필요):
-# livekit_url = "wss://your-domain.com:7880"
-# api_base_url = "https://your-domain.com:24015"
+# 실제 운영 서버 (HTTPS/WSS 사용):
+# livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+# api_base_url = "https://safety-server.bs-soft.co.kr:24015"
 
 # ===== 오디오 최적화 설정 =====
 # 낮은 지연시간 (더 많은 CPU 사용):

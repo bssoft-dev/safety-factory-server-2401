@@ -1,0 +1,55 @@
+# 라즈베리파이 LiveKit 운영 서버 설정 파일
+# config.txt 파일로 저장하여 사용
+
+# ===== 기존 설정 (유지) =====
+DEVICE_ID = "0"
+IN_DEVICE_NUM = 0
+OUT_DEVICE_NUM = 0
+CHUNK = 1024
+RATE = 16000
+WARN_DISTANCE = 3
+TARGET_BEACONS = ["yo:ur:ma:ca:dr:es"]
+
+# ===== LiveKit 설정 (운영 서버) =====
+# 통신 모드 선택: "websocket" 또는 "livekit"
+communication_mode = "livekit"
+
+# LiveKit 서버 설정 (실제 운영 서버)
+room_name = "safety-room"
+livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+api_base_url = "https://safety-server.bs-soft.co.kr"
+
+# 참가자 정보 (디바이스별로 수정 필요)
+participant_name = "RaspberryPi-001"
+participant_identity = "raspberry-001"
+
+# ===== 기존 WebSocket 설정 (비활성화) =====
+# ws_host = 'wss://localhost:24015/ws/room'
+# host = 'https://localhost:24015'
+
+# ===== 디바이스별 설정 예제 =====
+# 작업반장용 디바이스:
+# participant_name = "Supervisor-001"
+# participant_identity = "supervisor-001"
+
+# 작업자용 디바이스:
+# participant_name = "Worker-001"
+# participant_identity = "worker-001"
+
+# ===== 오디오 최적화 설정 =====
+# 낮은 지연시간 (더 많은 CPU 사용):
+# CHUNK = 512
+# RATE = 16000
+
+# 높은 안정성 (더 많은 지연시간):
+# CHUNK = 2048
+# RATE = 16000
+
+# ===== 네트워크 설정 =====
+# 운영 서버 (HTTPS/WSS 사용):
+# livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+# api_base_url = "https://safety-server.bs-soft.co.kr"
+
+# 로컬 테스트 서버:
+# livekit_url = "ws://localhost:7880"
+# api_base_url = "http://localhost:24015"

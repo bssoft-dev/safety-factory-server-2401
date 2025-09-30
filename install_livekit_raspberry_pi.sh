@@ -119,12 +119,12 @@ TARGET_BEACONS = ["yo:ur:ma:ca:dr:es"]
 # LiveKit 설정
 communication_mode = "livekit"
 room_name = "safety-room"
-livekit_url = "ws://YOUR_SERVER_IP:7880"
-api_base_url = "http://YOUR_SERVER_IP:24015"
+livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+api_base_url = "https://safety-server.bs-soft.co.kr"
 participant_name = "RaspberryPi-001"
 participant_identity = "raspberry-001"
 EOF
-    log_warn "config.txt 파일이 생성되었습니다. 서버 IP를 수정해주세요!"
+    log_info "config.txt 파일이 생성되었습니다. 실제 운영 서버 도메인이 설정되었습니다."
 else
     log_info "기존 config.txt 파일이 있습니다."
 fi
@@ -200,4 +200,13 @@ test_connection() {
 # 연결 테스트 실행
 test_connection
 
+echo ""
+echo "=========================================="
+log_info "실제 운영 서버 도메인이 설정되었습니다!"
+echo "=========================================="
+echo ""
+echo "설정된 서버 정보:"
+echo "- LiveKit 서버: wss://livekit.bs-soft.co.kr:7880"
+echo "- API 서버: https://safety-server.bs-soft.co.kr"
+echo ""
 echo "설치 스크립트가 완료되었습니다."
