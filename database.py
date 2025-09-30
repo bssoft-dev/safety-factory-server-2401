@@ -1,6 +1,6 @@
 # One line of FastAPI imports here later 👈
 from sqlmodel import SQLModel, create_engine, Session, select
-from models import Rooms
+from models import Rooms, RoomSettings
 from env import DATABASE_URL
 
 db = 'postgres'

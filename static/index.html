@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Server WebSocket 스트리밍 테스트</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5; 
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .controls { 
+            display: flex; 
+            gap: 10px; 
+            margin: 20px 0; 
+            flex-wrap: wrap; 
+        }
+        button { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-success:hover { background: #218838; }
+        
+        .status { 
+            padding: 15px; 
+            margin: 15px 0; 
+            border-radius: 6px; 
+            font-weight: bold;
+            text-align: center;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        
+        .settings { 
+            background: #f8f9fa; 
+            padding: 15px; 
+            border-radius: 6px; 
+            margin: 20px 0; 
+        }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+        }
+        label { font-weight: bold; }
+        input, select { 
+            width: 200px;
+            padding: 8px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+        }
+        
+        .stats { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr 1fr; 
+            gap: 15px; 
+            margin: 20px 0; 
+        }
+        .stat-box { 
+            background: #e9ecef; 
+            padding: 15px; 
+            text-align: center; 
+            border-radius: 6px; 
+        }
+        .stat-number { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #007bff; 
+        }
+        
+        .logs { 
+            height: 200px; 
+            overflow-y: auto; 
+            background: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            padding: 10px; 
+            margin: 20px 0; 
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        h1 { text-align: center; color: #333; }
+        h3 { margin-top: 0; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Safety Server WebSocket 스트리밍 테스트</h1>
+        
+        <div class="settings">
+            <h3>연결 설정</h3>
+            <div class="setting-row">
+                <label>서버 주소:</label>
+                <input type="text" id="serverHost" value="safety-server.bs-soft.co.kr">
+            </div>
+            <div class="setting-row">
+                <label>포트:</label>
+                <input type="number" id="serverPort" value="24015">
+            </div>
+            <div class="setting-row">
+                <label>방 이름:</label>
+                <input type="text" id="roomName" value="테스트방">
+            </div>
+            <div class="setting-row">
+                <label>디바이스 ID:</label>
+                <input type="text" id="deviceId" value="webclient-001">
+            </div>
+            <div class="setting-row">
+                <label>샘플레이트:</label>
+                <select id="sampleRate">
+                    <option value="16000">16000 Hz</option>
+                    <option value="48000">48000 Hz</option>
+                </select>
+            </div>
+            <div class="setting-row">
+                <label>프로토콜:</label>
+                <select id="wsProtocol">
+                    <option value="auto">자동 감지</option>
+                    <option value="ws">WS (비보안)</option>
+                    <option value="wss">WSS (보안)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-success" onclick="connect()">🔗 연결</button>
+            <button class="btn-danger" onclick="disconnect()">❌ 연결 해제</button>
+            <button class="btn-primary" onclick="clearLogs()">🧹 로그 지우기</button>
+            <button class="btn-primary" onclick="loadRoomSettings()">⚙️ 방 설정 로드</button>
+        </div>
+
+        <div id="status" class="status disconnected">연결 안됨</div>
+
+        <!-- 방별 설정 섹션 -->
+        <div class="settings" id="roomSettingsSection" style="display: none;">
+            <h3>🛠️ 방별 오디오 처리 설정</h3>
+            <div class="setting-row">
+                <label>소음제거:</label>
+                <input type="checkbox" id="roomUseVoiceEnhance" onchange="updateRoomSetting('use_voice_enhance', this.checked)">
+            </div>
+            <div class="setting-row">
+                <label>자신의 목소리 듣기:</label>
+                <input type="checkbox" id="roomHearMe" onchange="updateRoomSetting('hear_me', this.checked)">
+            </div>
+            <div class="setting-row">
+                <label>오디오 녹음:</label>
+                <input type="checkbox" id="roomRecordAudio" onchange="updateRoomSetting('record_audio', this.checked)">
+            </div>
+            <div class="setting-row">
+                <label>음원분류 (비명, 경보음):</label>
+                <input type="checkbox" id="roomClassifyEvent" onchange="updateRoomSetting('classify_event', this.checked)">
+            </div>
+            <div class="setting-row">
+                <label>STT (음성인식):</label>
+                <input type="checkbox" id="roomDoStt" onchange="updateRoomSetting('do_stt', this.checked)">
+            </div>
+            <div class="setting-row">
+                <label>볼륨 증폭:</label>
+                <input type="range" id="roomEnhanceVolume" min="0" max="10" value="0" onchange="updateRoomSetting('enhance_volume', parseInt(this.value))">
+                <span id="enhanceVolumeDisplay">0</span>
+            </div>
+            <div class="setting-row">
+                <button class="btn-primary" onclick="resetRoomSettings()">🔄 기본값으로 리셋</button>
+            </div>
+        </div>
+
+        <div class="settings">
+            <h3>오디오 제어</h3>
+            <div class="setting-row">
+                <label>볼륨:</label>
+                <div class="volume-control">
+                    <input type="range" id="volume" min="0" max="100" value="50">
+                    <span id="volumeDisplay">50%</span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label>음소거:</label>
+                <input type="checkbox" id="mute">
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div>송신 프레임</div>
+                <div class="stat-number" id="sentFrames">0</div>
+            </div>
+            <div class="stat-box">
+                <div>수신 프레임</div>
+                <div class="stat-number" id="receivedFrames">0</div>
+            </div>
+            <div class="stat-box">
+                <div>연결 시간</div>
+                <div class="stat-number" id="connectionTime">00:00</div>
+            </div>
+        </div>
+
+        <div class="logs" id="logs">
+            <div>[시작] WebSocket 스트리밍 테스트 준비됨</div>
+        </div>
+    </div>
+
+    <script>
+        class SimpleWebSocketClient {
+            constructor() {
+                this.websocket = null;
+                this.audioContext = null;
+                this.microphone = null;
+                this.processor = null;
+                this.isConnected = false;
+                this.sentFrames = 0;
+                this.receivedFrames = 0;
+                this.startTime = null;
+                this.frameSize = 1024;
+                this.statsTimer = null;
+            }
+
+            log(message) {
+                const logs = document.getElementById('logs');
+                const timestamp = new Date().toLocaleTimeString();
+                logs.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+                logs.scrollTop = logs.scrollHeight;
+                console.log(`[${timestamp}] ${message}`);
+            }
+
+            updateStatus(status, className) {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = status;
+                statusEl.className = `status ${className}`;
+            }
+
+            updateStats() {
+                document.getElementById('sentFrames').textContent = this.sentFrames;
+                document.getElementById('receivedFrames').textContent = this.receivedFrames;
+                
+                if (this.startTime) {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    document.getElementById('connectionTime').textContent = 
+                        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                }
+            }
+
+            async setupAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: parseInt(document.getElementById('sampleRate').value)
+                    });
+
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: parseInt(document.getElementById('sampleRate').value)
+                        } 
+                    });
+
+                    this.microphone = this.audioContext.createMediaStreamSource(stream);
+                    this.processor = this.audioContext.createScriptProcessor(this.frameSize, 1, 1);
+                    
+                    this.processor.onaudioprocess = (event) => {
+                        if (!this.isConnected || !this.websocket) return;
+                        
+                        const inputData = event.inputBuffer.getChannelData(0);
+                        
+                        // Float32 → Int16 변환
+                        const int16Data = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                        }
+                        
+                        // WebSocket으로 전송
+                        if (this.websocket.readyState === WebSocket.OPEN) {
+                            this.websocket.send(int16Data.buffer);
+                            this.sentFrames++;
+                        }
+                    };
+
+                    this.microphone.connect(this.processor);
+                    this.processor.connect(this.audioContext.destination);
+                    
+                    this.log("✅ 오디오 설정 완료");
+                } catch (error) {
+                    this.log(`❌ 오디오 설정 실패: ${error.message}`);
+                    throw error;
+                }
+            }
+
+            async connect() {
+                if (this.isConnected) {
+                    this.log("⚠️ 이미 연결됨");
+                    return;
+                }
+
+                try {
+                    this.updateStatus("연결 중...", "connecting");
+                    
+                    // 오디오 설정
+                    await this.setupAudio();
+                    
+                    // WebSocket URL 구성
+                    const host = document.getElementById('serverHost').value;
+                    const port = document.getElementById('serverPort').value;
+                    const roomName = document.getElementById('roomName').value;
+                    const deviceId = document.getElementById('deviceId').value;
+                    const sampleRate = document.getElementById('sampleRate').value;
+                    const protocolChoice = document.getElementById('wsProtocol').value;
+                    
+                    // 프로토콜 결정
+                    let protocol;
+                    if (protocolChoice === 'auto') {
+                        protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    } else {
+                        protocol = protocolChoice + ':';
+                    }
+                    
+                    const wsUrl = `${protocol}//${host}:${port}/ws/room/${roomName}/${sampleRate}/float32/${deviceId}`;
+                    this.log(`🔗 연결 시도: ${wsUrl}`);
+                    
+                    // WebSocket 연결
+                    this.websocket = new WebSocket(wsUrl);
+                    
+                    this.websocket.onopen = () => {
+                        this.isConnected = true;
+                        this.startTime = Date.now();
+                        this.updateStatus("✅ 연결됨 - 스트리밍 중", "connected");
+                        this.log("✅ WebSocket 연결 성공 - 오디오 스트리밍 시작");
+                        
+                        // 통계 업데이트 타이머
+                        this.statsTimer = setInterval(() => this.updateStats(), 1000);
+                    };
+                    
+                    this.websocket.onmessage = (event) => {
+                        // 서버에서 오디오 수신
+                        this.receivedFrames++;
+                        
+                        // 재생 (음소거가 아닌 경우)
+                        if (!document.getElementById('mute').checked) {
+                            this.playReceivedAudio(event.data);
+                        }
+                    };
+                    
+                    this.websocket.onerror = (error) => {
+                        this.log(`❌ WebSocket 오류: ${error}`);
+                        if (window.location.protocol === 'https:') {
+                            this.log(`💡 HTTPS 환경: WSS 프로토콜 사용 확인 필요`);
+                        }
+                    };
+                    
+                    this.websocket.onclose = () => {
+                        this.isConnected = false;
+                        this.updateStatus("연결 해제됨", "disconnected");
+                        this.log("🔌 WebSocket 연결 종료");
+                        
+                        if (this.statsTimer) {
+                            clearInterval(this.statsTimer);
+                            this.statsTimer = null;
+                        }
+                    };
+                    
+                } catch (error) {
+                    this.log(`❌ 연결 실패: ${error.message}`);
+                    this.updateStatus("연결 실패", "disconnected");
+                }
+            }
+
+            async playReceivedAudio(audioData) {
+                try {
+                    if (!this.audioContext) return;
+                    
+                    // ArrayBuffer → Float32Array 변환
+                    const int16Array = new Int16Array(audioData);
+                    const float32Array = new Float32Array(int16Array.length);
+                    
+                    for (let i = 0; i < int16Array.length; i++) {
+                        float32Array[i] = int16Array[i] / 32768.0;
+                    }
+                    
+                    // AudioBuffer 생성 및 재생
+                    const audioBuffer = this.audioContext.createBuffer(1, float32Array.length, this.audioContext.sampleRate);
+                    audioBuffer.getChannelData(0).set(float32Array);
+                    
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    
+                    const gainNode = this.audioContext.createGain();
+                    gainNode.gain.value = document.getElementById('volume').value / 100;
+                    
+                    source.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+                    source.start();
+                    
+                } catch (error) {
+                    console.error("재생 오류:", error);
+                }
+            }
+
+            disconnect() {
+                if (this.websocket) {
+                    this.websocket.close();
+                }
+                
+                if (this.processor) {
+                    this.processor.disconnect();
+                }
+                
+                if (this.microphone) {
+                    this.microphone.disconnect();
+                }
+                
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                this.isConnected = false;
+                this.updateStatus("연결 해제됨", "disconnected");
+                this.log("🛑 연결 해제 완료");
+            }
+        }
+
+        // 전역 클라이언트 인스턴스
+        const client = new SimpleWebSocketClient();
+
+        // ========== 방별 설정 관리 ==========
+        async function loadRoomSettings() {
+            const roomName = document.getElementById('roomName').value;
+            const host = document.getElementById('serverHost').value;
+            const port = document.getElementById('serverPort').value;
+            
+            if (!roomName) {
+                client.log("❌ 방 이름을 입력하세요");
+                return;
+            }
+            
+            try {
+                const protocol = window.location.protocol;
+                const apiUrl = `${protocol}//${host}:${port}/v1/room/${encodeURIComponent(roomName)}/settings`;
+                
+                client.log(`⚙️ 방 설정 로드 중: ${roomName}`);
+                
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const settings = data.settings;
+                    
+                    // UI 업데이트
+                    document.getElementById('roomUseVoiceEnhance').checked = settings.use_voice_enhance;
+                    document.getElementById('roomHearMe').checked = settings.hear_me;
+                    document.getElementById('roomRecordAudio').checked = settings.record_audio;
+                    document.getElementById('roomClassifyEvent').checked = settings.classify_event;
+                    document.getElementById('roomDoStt').checked = settings.do_stt;
+                    document.getElementById('roomEnhanceVolume').value = settings.enhance_volume;
+                    document.getElementById('enhanceVolumeDisplay').textContent = settings.enhance_volume;
+                    
+                    // 설정 섹션 표시
+                    document.getElementById('roomSettingsSection').style.display = 'block';
+                    
+                    client.log(`✅ 방 설정 로드 완료`);
+                    client.log(`📋 소음제거: ${settings.use_voice_enhance}, STT: ${settings.do_stt}, 음원분류: ${settings.classify_event}`);
+                } else {
+                    client.log(`❌ 방 설정 로드 실패: ${data.detail}`);
+                }
+            } catch (error) {
+                client.log(`❌ 방 설정 로드 오류: ${error.message}`);
+            }
+        }
+
+        async function updateRoomSetting(settingName, value) {
+            const roomName = document.getElementById('roomName').value;
+            const host = document.getElementById('serverHost').value;
+            const port = document.getElementById('serverPort').value;
+            
+            if (!roomName) {
+                client.log("❌ 방 이름을 입력하세요");
+                return;
+            }
+            
+            try {
+                const protocol = window.location.protocol;
+                const apiUrl = `${protocol}//${host}:${port}/v1/room/${encodeURIComponent(roomName)}/settings/${settingName}`;
+                
+                const response = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(value)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    client.log(`✅ ${settingName}: ${value} 업데이트 완료`);
+                    
+                    // 볼륨 증폭 표시 업데이트
+                    if (settingName === 'enhance_volume') {
+                        document.getElementById('enhanceVolumeDisplay').textContent = value;
+                    }
+                } else {
+                    client.log(`❌ 설정 업데이트 실패: ${data.detail}`);
+                }
+            } catch (error) {
+                client.log(`❌ 설정 업데이트 오류: ${error.message}`);
+            }
+        }
+
+        async function resetRoomSettings() {
+            const roomName = document.getElementById('roomName').value;
+            const host = document.getElementById('serverHost').value;
+            const port = document.getElementById('serverPort').value;
+            
+            if (!roomName) {
+                client.log("❌ 방 이름을 입력하세요");
+                return;
+            }
+            
+            if (!confirm(`방 '${roomName}'의 설정을 기본값으로 리셋하시겠습니까?`)) {
+                return;
+            }
+            
+            try {
+                const protocol = window.location.protocol;
+                const apiUrl = `${protocol}//${host}:${port}/v1/room/${encodeURIComponent(roomName)}/settings/reset`;
+                
+                client.log(`🔄 방 설정 리셋 중: ${roomName}`);
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    client.log(`✅ 방 설정 리셋 완료`);
+                    
+                    // 설정 다시 로드
+                    await loadRoomSettings();
+                } else {
+                    client.log(`❌ 방 설정 리셋 실패: ${data.detail}`);
+                }
+            } catch (error) {
+                client.log(`❌ 방 설정 리셋 오류: ${error.message}`);
+            }
+        }
+
+        // ========== 기존 함수들 ==========
+
+        // 버튼 이벤트 핸들러
+        function connect() { client.connect(); }
+        function disconnect() { client.disconnect(); }
+        function clearLogs() { 
+            document.getElementById('logs').innerHTML = '<div>[시작] 로그 지워짐</div>'; 
+        }
+
+        // 볼륨 슬라이더 업데이트
+        document.getElementById('volume').addEventListener('input', function() {
+            document.getElementById('volumeDisplay').textContent = this.value + '%';
+        });
+
+        // 페이지 언로드 시 정리
+        window.addEventListener('beforeunload', () => {
+            client.disconnect();
+        });
+
+        // 페이지 로드 시 자동 설정
+        window.addEventListener('load', () => {
+            const serverHostInput = document.getElementById('serverHost');
+            if (!serverHostInput.value) {
+                serverHostInput.value = window.location.hostname || 'localhost';
+            }
+            
+            client.log("🌐 페이지 로드 완료 - 연결 버튼을 클릭하여 시작하세요");
+        });
+    </script>
+</body>
+</html>

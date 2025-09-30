@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>간단한 음성통신</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .rooms-list {
+            margin-top: 20px;
+        }
+        .room-item {
+            background: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>간단한 음성통신</h1>
+        
+        <!-- 방 생성 -->
+        <div class="form-group">
+            <label for="roomName">방 이름:</label>
+            <input type="text" id="roomName" placeholder="방 이름을 입력하세요">
+            <button onclick="createRoom()">방 생성</button>
+        </div>
+
+        <!-- 방 목록 -->
+        <div class="rooms-list">
+            <h3>방 목록</h3>
+            <button onclick="loadRooms()">방 목록 새로고침</button>
+            <div id="roomsList"></div>
+        </div>
+
+        <!-- 연결 설정 -->
+        <div class="form-group">
+            <label for="connectRoomName">연결할 방 이름:</label>
+            <input type="text" id="connectRoomName" placeholder="연결할 방 이름을 입력하세요">
+        </div>
+
+        <div class="form-group">
+            <label for="deviceId">디바이스 ID:</label>
+            <input type="text" id="deviceId" placeholder="디바이스 ID를 입력하세요" value="web_client">
+        </div>
+
+        <div class="form-group">
+            <label for="sampleRate">샘플레이트:</label>
+            <select id="sampleRate">
+                <option value="16000">16kHz</option>
+                <option value="48000">48kHz</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="dataType">데이터 타입:</label>
+            <select id="dataType">
+                <option value="int16">int16</option>
+                <option value="float32">float32</option>
+            </select>
+        </div>
+
+        <button onclick="connect()" id="connectBtn">연결</button>
+        <button onclick="disconnect()" id="disconnectBtn" disabled>연결 해제</button>
+
+        <div id="status" class="status disconnected">연결되지 않음</div>
+    </div>
+
+    <script>
+        let websocket = null;
+        let mediaStream = null;
+        let audioContext = null;
+        let source = null;
+        let processor = null;
+
+        // 방 생성
+        async function createRoom() {
+            const roomName = document.getElementById('roomName').value;
+            if (!roomName) {
+                alert('방 이름을 입력하세요.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/v1/simple/create_room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ room_name: roomName })
+                });
+
+                if (response.ok) {
+                    alert('방이 생성되었습니다.');
+                    loadRooms();
+                } else {
+                    alert('방 생성에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('방 생성 중 오류가 발생했습니다.');
+            }
+        }
+
+        // 방 목록 로드
+        async function loadRooms() {
+            try {
+                const response = await fetch('/v1/simple/rooms');
+                const rooms = await response.json();
+                
+                const roomsList = document.getElementById('roomsList');
+                roomsList.innerHTML = '';
+                
+                rooms.forEach(room => {
+                    const roomDiv = document.createElement('div');
+                    roomDiv.className = 'room-item';
+                    roomDiv.innerHTML = `
+                        <strong>${room.room_name}</strong> (참가자: ${room.num_person}명)
+                    `;
+                    roomsList.appendChild(roomDiv);
+                });
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        // 연결
+        async function connect() {
+            const roomName = document.getElementById('connectRoomName').value;
+            const deviceId = document.getElementById('deviceId').value;
+            const sampleRate = parseInt(document.getElementById('sampleRate').value);
+            const dataType = document.getElementById('dataType').value;
+
+            if (!roomName) {
+                alert('연결할 방 이름을 입력하세요.');
+                return;
+            }
+
+            try {
+                // 마이크 권한 요청
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // WebSocket 연결
+                const wsUrl = `ws://${window.location.host}/ws/simple/room/${roomName}/${sampleRate}/${dataType}/${deviceId}`;
+                websocket = new WebSocket(wsUrl);
+
+                websocket.onopen = function() {
+                    console.log('WebSocket 연결됨');
+                    setupAudioProcessing();
+                    updateStatus(true);
+                };
+
+                websocket.onmessage = function(event) {
+                    // 오디오 데이터 수신 및 재생
+                    if (event.data instanceof Blob) {
+                        playAudio(event.data);
+                    }
+                };
+
+                websocket.onclose = function() {
+                    console.log('WebSocket 연결 해제됨');
+                    cleanup();
+                    updateStatus(false);
+                };
+
+                websocket.onerror = function(error) {
+                    console.error('WebSocket 오류:', error);
+                    cleanup();
+                    updateStatus(false);
+                };
+
+            } catch (error) {
+                console.error('연결 오류:', error);
+                alert('연결에 실패했습니다: ' + error.message);
+            }
+        }
+
+        // 오디오 처리 설정
+        function setupAudioProcessing() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            source = audioContext.createMediaStreamSource(mediaStream);
+            processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            processor.onaudioprocess = function(e) {
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const dataType = document.getElementById('dataType').value;
+                    
+                    let audioData;
+                    if (dataType === 'float32') {
+                        audioData = inputData;
+                    } else {
+                        // float32를 int16으로 변환
+                        audioData = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            audioData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                        }
+                    }
+                    
+                    websocket.send(audioData.buffer);
+                }
+            };
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+        }
+
+        // 오디오 재생
+        function playAudio(audioBlob) {
+            const url = URL.createObjectURL(audioBlob);
+            const audio = new Audio(url);
+            audio.play().catch(e => console.error('오디오 재생 오류:', e));
+        }
+
+        // 연결 해제
+        function disconnect() {
+            if (websocket) {
+                websocket.close();
+            }
+            cleanup();
+            updateStatus(false);
+        }
+
+        // 정리
+        function cleanup() {
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            if (source) {
+                source.disconnect();
+                source = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            websocket = null;
+        }
+
+        // 상태 업데이트
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            if (connected) {
+                status.textContent = '연결됨';
+                status.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                status.textContent = '연결되지 않음';
+                status.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        // 페이지 로드 시 방 목록 로드
+        window.onload = function() {
+            loadRooms();
+        };
+
+        // 페이지 언로드 시 정리
+        window.onbeforeunload = function() {
+            disconnect();
+        };
+    </script>
+</body>
+</html>

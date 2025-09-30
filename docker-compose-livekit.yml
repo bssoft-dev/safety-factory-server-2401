@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # LiveKit 서버
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"    # HTTP API 포트
+      - "7881:7881"    # WebSocket 포트
+      - "50000-50100:50000-50100/udp"  # RTP UDP 포트 범위
+    volumes:
+      - ./livekit.yaml:/livekit.yaml
+    command: --config /livekit.yaml
+    restart: unless-stopped
+    networks:
+      - livekit-network
+
+  # Redis (LiveKit 세션 저장용)
+  redis:
+    image: redis:7-alpine
+    container_name: livekit-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - livekit-network
+    volumes:
+      - redis_data:/data
+
+networks:
+  livekit-network:
+    driver: bridge
+
+volumes:
+  redis_data:

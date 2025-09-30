@@ -9,6 +9,9 @@ from utils.sms import sms_send
 from env import SMS_TEST_SEND_LIST
 from ai_models.classification.mobilenetV3_mfcc import mobilenet_v3_mfcc
 
+# BSM 연동을 위한 import 추가
+from services.bsm_api_agent import bsm_agent
+
 
 class EventClassifier:
     def __init__(self, device):
@@ -58,12 +61,42 @@ class EventClassifier:
             if  ((predicted_label == "비명") and (confidence < 0.9)) or ((predicted_label == "경보음") and (confidence < 0.8)):
                 predicted_label = "일반"
             if predicted_label != "일반":
+                # 기존 로컬 DB 저장 유지
                 with Session(engine) as session:
                     session.add(Events(room_name=room_name, event=predicted_label, time=datetime.now()))
                     session.commit()
-                # try:
-                #     await sms_send(SMS_TEST_SEND_LIST, f"{room_name}에서 {predicted_label} 이벤트가 발생했습니다.")
-                # except Exception as e:
-                #     print(f"SMS send error: {e}")
+                
+                # 기존 SMS 발송 유지
+                try:
+                    await sms_send(SMS_TEST_SEND_LIST, f"{room_name}에서 {predicted_label} 이벤트가 발생했습니다.")
+                except Exception as e:
+                    print(f"SMS send error: {e}")
+                
+                # BSM에 이벤트 보고 추가
+                try:
+                    # 방 이름에서 device_id 추출
+                    device_id = bsm_agent.extract_device_id_from_room(room_name)
+                    
+                    # 이벤트 종류별로 BSM에 보고
+                    if predicted_label == "비명":
+                        await bsm_agent.report_scream_event(
+                            device_id=device_id,
+                            room_name=room_name,
+                            confidence=confidence
+                        )
+                    elif predicted_label == "경보음":
+                        await bsm_agent.report_alarm_event(
+                            device_id=device_id,
+                            room_name=room_name,
+                            confidence=confidence
+                        )
+                    elif predicted_label == "충격깨짐소리":
+                        await bsm_agent.report_shock_event(
+                            device_id=device_id,
+                            room_name=room_name,
+                            confidence=confidence
+                        )
+                except Exception as e:
+                    print(f"BSM 이벤트 보고 오류: {e}")
             
             return predicted_label, confidence

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Server 방 모니터링</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .stats-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .stat-card { background: #e9ecef; padding: 15px; text-align: center; border-radius: 8px; }
+        .stat-number { font-size: 2em; font-weight: bold; color: #007bff; }
+        .stat-label { font-size: 0.9em; color: #666; }
+        .rooms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .room-card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; }
+        .room-card.active { border-color: #28a745; }
+        .room-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .room-name { font-weight: bold; font-size: 1.1em; }
+        .client-count { background: #007bff; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.8em; }
+        .client-list { margin-top: 10px; }
+        .client-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee; }
+        .client-item:last-child { border-bottom: none; }
+        .client-name { font-weight: 500; }
+        .client-details { font-size: 0.8em; color: #666; }
+        .audio-controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .volume-control { display: flex; align-items: center; gap: 8px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; text-align: center; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .status.monitoring { background: #fff3cd; color: #856404; }
+        .logs { height: 200px; overflow-y: auto; background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; margin: 20px 0; font-family: monospace; font-size: 0.9em; }
+        .audio-visualizer { width: 100%; height: 30px; background: #f8f9fa; border: 1px solid #dee2e6; margin: 5px 0; position: relative; }
+        .audio-bar { background: linear-gradient(90deg, #28a745, #ffc107, #dc3545); height: 100%; transition: width 0.1s; }
+        .refresh-btn { background: #17a2b8; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎵 Safety Server 방 모니터링</h1>
+            <div>
+                <button class="btn refresh-btn" onclick="toggleAutoRefresh()">
+                    <span id="refreshStatus">자동 새로고침 ON</span>
+                </button>
+                <button class="btn btn-warning" onclick="clearLogs()">로그 지우기</button>
+            </div>
+        </div>
+
+        <div id="connectionStatus" class="status disconnected">모니터링 서버에 연결 중...</div>
+
+        <div class="stats-summary">
+            <div class="stat-card">
+                <div class="stat-number" id="totalRooms">-</div>
+                <div class="stat-label">전체 방</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="activeRooms">-</div>
+                <div class="stat-label">활성 방</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="totalClients">-</div>
+                <div class="stat-label">총 클라이언트</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lastUpdate">-</div>
+                <div class="stat-label">마지막 업데이트</div>
+            </div>
+        </div>
+
+        <div id="roomsContainer" class="rooms-grid">
+            <!-- 방 카드들이 여기에 동적으로 생성됩니다 -->
+        </div>
+
+        <div class="logs" id="logs"></div>
+    </div>
+
+    <script>
+        class RoomMonitor {
+            constructor() {
+                this.monitoringSocket = null;
+                this.audioSockets = new Map(); // room_name -> WebSocket
+                this.audioContexts = new Map(); // room_name -> AudioContext
+                this.isAutoRefresh = true;
+                this.currentlyMonitoring = new Set();
+                
+                this.connectMonitoring();
+            }
+
+            log(message) {
+                const logs = document.getElementById('logs');
+                const timestamp = new Date().toLocaleTimeString();
+                logs.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+                logs.scrollTop = logs.scrollHeight;
+                console.log(message);
+            }
+
+            updateConnectionStatus(status, className) {
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.textContent = status;
+                statusEl.className = `status ${className}`;
+            }
+
+            connectMonitoring() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.hostname || 'localhost';
+                const port = window.location.port || '24015';
+                const wsUrl = `${protocol}//${host}:${port}/ws/monitor`;
+
+                this.log(`🔗 모니터링 서버 연결 시도: ${wsUrl}`);
+                this.updateConnectionStatus("연결 중...", "monitoring");
+
+                this.monitoringSocket = new WebSocket(wsUrl);
+
+                this.monitoringSocket.onopen = () => {
+                    this.log("✅ 모니터링 서버 연결 성공");
+                    this.updateConnectionStatus("모니터링 활성화", "connected");
+                };
+
+                this.monitoringSocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'room_status') {
+                            this.updateRoomStatus(data);
+                        }
+                    } catch (error) {
+                        this.log(`❌ 데이터 파싱 오류: ${error.message}`);
+                    }
+                };
+
+                this.monitoringSocket.onerror = (error) => {
+                    this.log(`❌ 모니터링 연결 오류: ${error}`);
+                    this.updateConnectionStatus("연결 오류", "disconnected");
+                };
+
+                this.monitoringSocket.onclose = () => {
+                    this.log("🔌 모니터링 연결 종료");
+                    this.updateConnectionStatus("연결 끊김", "disconnected");
+                    
+                    // 5초 후 재연결 시도
+                    if (this.isAutoRefresh) {
+                        setTimeout(() => this.connectMonitoring(), 5000);
+                    }
+                };
+            }
+
+            updateRoomStatus(data) {
+                // 통계 업데이트
+                document.getElementById('totalRooms').textContent = data.total_rooms;
+                document.getElementById('activeRooms').textContent = data.active_rooms;
+                document.getElementById('totalClients').textContent = 
+                    data.rooms.reduce((sum, room) => sum + room.client_count, 0);
+                document.getElementById('lastUpdate').textContent = 
+                    new Date(data.timestamp).toLocaleTimeString();
+
+                // 방 카드 업데이트
+                this.renderRooms(data.rooms);
+            }
+
+            renderRooms(rooms) {
+                const container = document.getElementById('roomsContainer');
+                container.innerHTML = '';
+
+                if (rooms.length === 0) {
+                    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #666; padding: 40px;">활성 방이 없습니다</div>';
+                    return;
+                }
+
+                rooms.forEach(room => {
+                    const roomCard = this.createRoomCard(room);
+                    container.appendChild(roomCard);
+                });
+            }
+
+            createRoomCard(room) {
+                const card = document.createElement('div');
+                card.className = `room-card ${room.is_active ? 'active' : ''}`;
+                
+                const isMonitoring = this.currentlyMonitoring.has(room.room_name);
+                
+                card.innerHTML = `
+                    <div class="room-header">
+                        <div class="room-name">${room.room_name}</div>
+                        <div class="client-count">${room.client_count}명</div>
+                    </div>
+                    
+                    <div class="client-list">
+                        ${room.clients.map(client => `
+                            <div class="client-item">
+                                <div class="client-name">${client.person_name}</div>
+                                <div class="client-details">
+                                    ${client.device_type} | ${client.sample_rate}Hz
+                                    ${client.is_webbrowser ? ' | 🌐' : ' | ��'}
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${room.clients.length === 0 ? '<div style="color: #666; font-style: italic;">클라이언트 없음</div>' : ''}
+                    </div>
+
+                    <div class="audio-controls">
+                        <button class="btn ${isMonitoring ? 'btn-danger' : 'btn-primary'}" 
+                                onclick="roomMonitor.${isMonitoring ? 'stopMonitoring' : 'startMonitoring'}('${room.room_name}')"
+                                ${room.client_count === 0 ? 'disabled' : ''}>
+                            ${isMonitoring ? '🔇 모니터링 중지' : '🎧 모니터링 시작'}
+                        </button>
+                        
+                        <div class="volume-control">
+                            <span>🔊</span>
+                            <input type="range" min="0" max="100" value="50" 
+                                   onchange="roomMonitor.setVolume('${room.room_name}', this.value)"
+                                   ${!isMonitoring ? 'disabled' : ''}>
+                        </div>
+                    </div>
+
+                    <div class="audio-visualizer" id="visualizer_${room.room_name}">
+                        <div class="audio-bar" style="width: 0%"></div>
+                    </div>
+                `;
+
+                return card;
+            }
+
+            async startMonitoring(roomName) {
+                if (this.currentlyMonitoring.has(roomName)) {
+                    this.log(`⚠️ ${roomName} 이미 모니터링 중`);
+                    return;
+                }
+
+                try {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const host = window.location.hostname || 'localhost';
+                    const port = window.location.port || '24015';
+                    const wsUrl = `${protocol}//${host}:${port}/ws/monitor/room/${roomName}`;
+
+                    this.log(`🎧 ${roomName} 오디오 모니터링 시작: ${wsUrl}`);
+
+                    // AudioContext 생성
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 16000
+                    });
+                    this.audioContexts.set(roomName, audioContext);
+
+                    // WebSocket 연결
+                    const audioSocket = new WebSocket(wsUrl);
+                    this.audioSockets.set(roomName, audioSocket);
+
+                    audioSocket.onopen = () => {
+                        this.log(`✅ ${roomName} 오디오 연결 성공`);
+                        this.currentlyMonitoring.add(roomName);
+                    };
+
+                    audioSocket.onmessage = (event) => {
+                        if (typeof event.data === 'string') {
+                            // 상태 메시지
+                            const status = JSON.parse(event.data);
+                            this.log(`📢 ${roomName}: ${status.message}`);
+                        } else {
+                            // 오디오 데이터
+                            this.playAudioData(roomName, event.data);
+                        }
+                    };
+
+                    audioSocket.onclose = () => {
+                        this.log(`🔌 ${roomName} 오디오 연결 종료`);
+                        this.currentlyMonitoring.delete(roomName);
+                        this.audioSockets.delete(roomName);
+                        if (this.audioContexts.has(roomName)) {
+                            this.audioContexts.get(roomName).close();
+                            this.audioContexts.delete(roomName);
+                        }
+                    };
+
+                    audioSocket.onerror = (error) => {
+                        this.log(`❌ ${roomName} 오디오 오류: ${error}`);
+                    };
+
+                } catch (error) {
+                    this.log(`❌ ${roomName} 모니터링 시작 실패: ${error.message}`);
+                }
+            }
+
+            stopMonitoring(roomName) {
+                if (!this.currentlyMonitoring.has(roomName)) {
+                    this.log(`⚠️ ${roomName} 모니터링 중이 아님`);
+                    return;
+                }
+
+                this.log(`🔇 ${roomName} 모니터링 중지`);
+
+                // WebSocket 닫기
+                if (this.audioSockets.has(roomName)) {
+                    this.audioSockets.get(roomName).close();
+                    this.audioSockets.delete(roomName);
+                }
+
+                // AudioContext 닫기
+                if (this.audioContexts.has(roomName)) {
+                    this.audioContexts.get(roomName).close();
+                    this.audioContexts.delete(roomName);
+                }
+
+                this.currentlyMonitoring.delete(roomName);
+            }
+
+            async playAudioData(roomName, audioData) {
+                try {
+                    const audioContext = this.audioContexts.get(roomName);
+                    if (!audioContext) return;
+
+                    // Float32Array로 변환
+                    const float32Array = new Float32Array(audioData);
+                    
+                    // 오디오 레벨 계산 및 시각화
+                    const rms = Math.sqrt(float32Array.reduce((sum, val) => sum + val * val, 0) / float32Array.length);
+                    const percentage = Math.min(rms * 1000, 100); // 볼륨 레벨을 퍼센트로 변환
+                    
+                    const visualizer = document.getElementById(`visualizer_${roomName}`);
+                    if (visualizer) {
+                        const bar = visualizer.querySelector('.audio-bar');
+                        bar.style.width = `${percentage}%`;
+                    }
+
+                    // AudioBuffer 생성 및 재생
+                    const audioBuffer = audioContext.createBuffer(1, float32Array.length, audioContext.sampleRate);
+                    audioBuffer.getChannelData(0).set(float32Array);
+
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    
+                    const gainNode = audioContext.createGain();
+                    gainNode.gain.value = 0.5; // 기본 볼륨
+                    
+                    source.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    source.start();
+
+                } catch (error) {
+                    console.error(`${roomName} 오디오 재생 오류:`, error);
+                }
+            }
+
+            setVolume(roomName, volume) {
+                // 볼륨 설정은 AudioContext의 GainNode를 통해 실시간으로 조절할 수 있지만
+                // 현재는 간단한 구현으로 다음 오디오부터 적용
+                this.log(`🔊 ${roomName} 볼륨: ${volume}%`);
+            }
+
+            toggleAutoRefresh() {
+                this.isAutoRefresh = !this.isAutoRefresh;
+                const statusEl = document.getElementById('refreshStatus');
+                statusEl.textContent = this.isAutoRefresh ? '자동 새로고침 ON' : '자동 새로고침 OFF';
+                
+                if (!this.isAutoRefresh && this.monitoringSocket) {
+                    this.monitoringSocket.close();
+                } else if (this.isAutoRefresh && (!this.monitoringSocket || this.monitoringSocket.readyState === WebSocket.CLOSED)) {
+                    this.connectMonitoring();
+                }
+            }
+        }
+
+        // 전역 인스턴스
+        const roomMonitor = new RoomMonitor();
+
+        // 유틸리티 함수
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        // 페이지 언로드 시 정리
+        window.addEventListener('beforeunload', () => {
+            roomMonitor.currentlyMonitoring.forEach(roomName => {
+                roomMonitor.stopMonitoring(roomName);
+            });
+            if (roomMonitor.monitoringSocket) {
+                roomMonitor.monitoringSocket.close();
+            }
+        });
+    </script>
+</body>
+</html>

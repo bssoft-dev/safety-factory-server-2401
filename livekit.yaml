@@ -1,0 +1,17 @@
+# LiveKit 서버 설정 파일
+port: 7880                    # HTTP API 포트
+rtc:
+  udp_port: 50000            # RTP UDP 포트
+  tcp_port: 7881             # WebSocket 포트
+  use_external_ip: false     # 외부 IP 사용 여부
+  stun_servers:
+    - stun:stun.l.google.com:19302
+    - stun:stun1.l.google.com:19302
+redis:
+  address: redis:6379        # Redis 주소 (Docker Compose 사용 시)
+  # address: localhost:6379  # 로컬 Redis 사용 시
+keys:
+  devkey: secret             # API 키와 시크릿 (개발용)
+  # 프로덕션에서는 강력한 키 사용 권장
+log_level: info              # 로그 레벨
+development: true            # 개발 모드
