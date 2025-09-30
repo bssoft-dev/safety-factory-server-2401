@@ -22,7 +22,7 @@ RECONNECT_DELAY = 3
 class RaspberryPiLiveKitClient:
     def __init__(self):
         # 설정값 (실제 환경에서는 config.txt에서 읽어옴)
-        self.livekit_url = "wss://livekit.bs-soft.co.kr:7880"  # 실제 서버 도메인
+        self.livekit_url = "wss://livekit.bs-soft.co.kr"  # 실제 서버 도메인 (포트 443 사용)
         self.api_base_url = "https://safety-server.bs-soft.co.kr"  # 실제 서버 도메인
         self.room_name = "safety-room"
         self.participant_name = "RaspberryPi-001"

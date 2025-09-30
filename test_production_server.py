@@ -9,7 +9,7 @@ import json
 import ssl
 
 # 운영 서버 설정
-LIVEKIT_URL = "wss://livekit.bs-soft.co.kr:7880"
+LIVEKIT_URL = "wss://livekit.bs-soft.co.kr"
 API_BASE_URL = "https://safety-server.bs-soft.co.kr"
 
 def print_test(msg):

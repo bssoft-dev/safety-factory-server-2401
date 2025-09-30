@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/livekit", tags=["LiveKit Voice Chat"])
 
 # LiveKit 서비스 인스턴스 (실제 운영 서버 URL 사용)
 livekit_service = LiveKitVoiceChat(
-    livekit_url="wss://livekit.bs-soft.co.kr:7880",
+    livekit_url="wss://livekit.bs-soft.co.kr",
     api_key="devkey",
     api_secret="secret"
 )

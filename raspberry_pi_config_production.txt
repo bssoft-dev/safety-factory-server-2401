@@ -16,7 +16,7 @@ communication_mode = "livekit"
 
 # LiveKit 서버 설정 (실제 운영 서버)
 room_name = "safety-room"
-livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+livekit_url = "wss://livekit.bs-soft.co.kr"
 api_base_url = "https://safety-server.bs-soft.co.kr"
 
 # 참가자 정보 (디바이스별로 수정 필요)
@@ -47,7 +47,7 @@ participant_identity = "raspberry-001"
 
 # ===== 네트워크 설정 =====
 # 운영 서버 (HTTPS/WSS 사용):
-# livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+# livekit_url = "wss://livekit.bs-soft.co.kr"
 # api_base_url = "https://safety-server.bs-soft.co.kr"
 
 # 로컬 테스트 서버:

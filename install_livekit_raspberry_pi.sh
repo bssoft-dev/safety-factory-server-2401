@@ -119,7 +119,7 @@ TARGET_BEACONS = ["yo:ur:ma:ca:dr:es"]
 # LiveKit 설정
 communication_mode = "livekit"
 room_name = "safety-room"
-livekit_url = "wss://livekit.bs-soft.co.kr:7880"
+livekit_url = "wss://livekit.bs-soft.co.kr"
 api_base_url = "https://safety-server.bs-soft.co.kr"
 participant_name = "RaspberryPi-001"
 participant_identity = "raspberry-001"
