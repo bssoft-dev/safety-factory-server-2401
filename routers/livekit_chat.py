@@ -9,8 +9,12 @@ from utils.sys import aprint
 # 라우터 생성
 router = APIRouter(prefix="/api/livekit", tags=["LiveKit Voice Chat"])
 
-# LiveKit 서비스 인스턴스
-livekit_service = LiveKitVoiceChat()
+# LiveKit 서비스 인스턴스 (실제 운영 서버 URL 사용)
+livekit_service = LiveKitVoiceChat(
+    livekit_url="wss://livekit.bs-soft.co.kr:7880",
+    api_key="devkey",
+    api_secret="secret"
+)
 
 # Pydantic 모델들
 class RoomCreateRequest(BaseModel):
