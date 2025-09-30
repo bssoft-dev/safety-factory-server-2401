@@ -134,6 +134,8 @@ async def main():
         room_name = "test-room"
         participant_name = "Python Test Client"
         
+        aprint(f"연결 시도 중... 방: {room_name}, 참가자: {participant_name}")
+        
         if await client.connect(room_name, participant_name):
             aprint("연결 성공! 30초 동안 대기합니다...")
             
@@ -146,6 +148,10 @@ async def main():
         else:
             aprint("연결에 실패했습니다.")
             
+    except Exception as e:
+        aprint(f"오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
     except KeyboardInterrupt:
         aprint("사용자에 의해 중단되었습니다.")
     finally:
