@@ -15,12 +15,12 @@ class AudioUtils:
         self.FORMAT = np.int16
         self.CHANNELS = 1
         self.RATE = 16000
-        self.FRAME_SIZE = 1024
+        self.FRAME_SIZE = 1024  # 딜레이와 부하의 균형점 (1024)
         self.BUFFER_SIZE = int(self.RATE / self.FRAME_SIZE) * 1 # buffer size about 2 sec
         self.save_audio_dir = "./recordings"
         self.save_audio_sec = 60
         self.save_audio_len = self.RATE * self.save_audio_sec
-        self.SYNC_INTERVAL = (self.FRAME_SIZE / self.RATE) * 4 # Sync interval for processing audio is about 0.512 sec
+        self.SYNC_INTERVAL = self.FRAME_SIZE / self.RATE  # 64ms 간격 (1024/16000 = 0.064초)
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self.b, self.a = self.butter_lowpass(2000, self.RATE, order=10)
         self.voice_enhancer = VoiceEnhancer(self.device)
@@ -70,21 +70,88 @@ class AudioUtils:
         return np.array(data * 32767).astype("int16")
     
     def exclude_client_audio(self, data: list[np.ndarray], exclude_idx: int | None = None) -> list[np.ndarray]:
-        if exclude_idx != None:
+        if exclude_idx is not None:
             if len(data) > 1:
-                return np.delete(np.array(data), exclude_idx, axis=0)
+                # 리스트에서 해당 인덱스 제외
+                return [data[i] for i in range(len(data)) if i != exclude_idx]
             else:
-                return np.zeros_like(data[0]).reshape(1, -1)
-        return np.array(data)
+                # 데이터가 1개뿐이면 빈 리스트 반환
+                return []
+        return data
     
     def mix_audio_to_torch(self, data: list[np.ndarray], exclude_idx: int | None = None) -> torch.Tensor:
-        data_array = self.exclude_client_audio(data, exclude_idx)
+        if not data:
+            return torch.zeros(self.FRAME_SIZE, device=self.device, dtype=torch.float32)
+        
+        filtered_data = self.exclude_client_audio(data, exclude_idx)
+        
+        if not filtered_data:
+            return torch.zeros(self.FRAME_SIZE, device=self.device, dtype=torch.float32)
+        
+        # 리스트를 numpy 배열로 변환 후 torch 텐서로 변환
+        data_array = np.array(filtered_data)
         return torch.mean(torch.from_numpy(data_array).to(device=self.device, dtype=torch.float32) / 32768.0, dim=0)
     
     def mix_audio(self, data: list[np.ndarray], exclude_idx: int | None = None) -> np.ndarray:
-        dtype = data[0].dtype
-        data_array = self.exclude_client_audio(data, exclude_idx)               
-        return np.mean(data_array, axis=0).astype(dtype)
+        if not data:
+            return np.zeros(self.FRAME_SIZE, dtype=np.int16)
+        
+        # 데이터 유효성 검사
+        valid_data = []
+        for i, audio in enumerate(data):
+            if audio is not None and len(audio) > 0:
+                # 길이가 다른 경우 FRAME_SIZE로 맞춤
+                if len(audio) != self.FRAME_SIZE:
+                    if len(audio) > self.FRAME_SIZE:
+                        audio = audio[:self.FRAME_SIZE]
+                    else:
+                        # 부족한 부분은 0으로 패딩
+                        padded = np.zeros(self.FRAME_SIZE, dtype=audio.dtype)
+                        padded[:len(audio)] = audio
+                        audio = padded
+                valid_data.append(audio)
+        
+        if not valid_data:
+            return np.zeros(self.FRAME_SIZE, dtype=np.int16)
+        
+        # exclude_idx 처리
+        if exclude_idx is not None and exclude_idx < len(valid_data):
+            filtered_data = [valid_data[i] for i in range(len(valid_data)) if i != exclude_idx]
+        else:
+            filtered_data = valid_data
+        
+        if not filtered_data:
+            return np.zeros(self.FRAME_SIZE, dtype=np.int16)
+        
+        # 단일 오디오인 경우 바로 반환 (믹싱 불필요)
+        if len(filtered_data) == 1:
+            return filtered_data[0]
+        
+        # 다중 오디오인 경우에만 믹싱
+        # 더 안전한 방법: float32로 변환 후 평균 계산
+        try:
+            # 모든 오디오를 float32로 변환
+            float_audios = []
+            for audio in filtered_data:
+                if audio.dtype != np.float32:
+                    float_audio = audio.astype(np.float32) / 32768.0
+                else:
+                    float_audio = audio
+                float_audios.append(float_audio)
+            
+            # 평균 계산
+            mixed_float = np.mean(float_audios, axis=0)
+            
+            # int16으로 변환 (클리핑 방지)
+            mixed_float = np.clip(mixed_float, -1.0, 1.0)
+            result = (mixed_float * 32767).astype(np.int16)
+            
+            return result
+            
+        except Exception as e:
+            aprint(f"mix_audio 오류: {e}")
+            # 폴백: 첫 번째 유효한 오디오 반환
+            return filtered_data[0]
     
     async def classify_audio(self, audio: list[np.ndarray], room_name: str):
         processed_data_int16 = self.mix_audio(audio)
@@ -106,7 +173,8 @@ class AudioUtils:
 
     async def recording_audio(self, buffer: list[np.ndarray], in_data, room_name, person_name, tag: str):
         buffer.append(in_data)
-        if (np.concatenate(buffer, axis=0).shape[0] >= self.save_audio_len) and not self.async_save_audio[tag]:
+        # 성능 최적화: 매번 concatenate하지 않고 프레임 수로 체크
+        if (len(buffer) * self.FRAME_SIZE >= self.save_audio_len) and not self.async_save_audio[tag]:
             saving_audio = buffer.copy()
             buffer = []
             asyncio.create_task(self.save_audio(saving_audio, person_name, room_name, tag))
@@ -114,13 +182,21 @@ class AudioUtils:
 
     async def save_audio(self, rec_buffer: list[np.ndarray], person_name: str, room_name: str, tag: str):
         self.async_save_audio[tag] = True
-        now = time.strftime('%Y-%m-%d_%Hh%Mm%Ss')
-        [date, now_time] = now.split('_')
-        os.makedirs(f"{self.save_audio_dir}/{date}/{room_name}", exist_ok=True)
-        input_filename = f"{self.save_audio_dir}/{date}/{room_name}/{tag}_{now_time}_{person_name}.wav"
-        await self.save_wav(input_filename, self.RATE, np.concatenate(rec_buffer, axis=0))
-        self.async_save_audio[tag] = False
-        aprint(f"Audio saved as {input_filename}")
+        try:
+            now = time.strftime('%Y-%m-%d_%Hh%Mm%Ss')
+            [date, now_time] = now.split('_')
+            os.makedirs(f"{self.save_audio_dir}/{date}/{room_name}", exist_ok=True)
+            input_filename = f"{self.save_audio_dir}/{date}/{room_name}/{tag}_{now_time}_{person_name}.wav"
+            
+            # 성능 최적화: concatenate를 한 번만 수행
+            if rec_buffer:
+                concatenated_audio = np.concatenate(rec_buffer, axis=0)
+                await self.save_wav(input_filename, self.RATE, concatenated_audio)
+                aprint(f"Audio saved as {input_filename} ({len(concatenated_audio)/self.RATE:.1f}s)")
+        except Exception as e:
+            aprint(f"Error saving audio: {e}")
+        finally:
+            self.async_save_audio[tag] = False
 
     async def send_audio(self, ws, processed_data_int16, dtype: str, sr: int):
         try:
