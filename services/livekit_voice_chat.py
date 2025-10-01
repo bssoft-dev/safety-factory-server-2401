@@ -2,6 +2,7 @@ import asyncio
 import time
 import logging
 from typing import Dict, List, Optional
+from datetime import datetime
 import numpy as np
 import torch
 import jwt
@@ -9,7 +10,7 @@ from livekit import rtc
 from sqlmodel import Session, select
 
 from database import engine
-from models import Rooms, Devices
+from models import Rooms, Devices, RoomSettings
 from services.audio_utils import AudioUtils
 from services.stt import SttProcessor
 from services.voice_enhance import VoiceEnhancer, LightVoiceEnhancer
@@ -61,12 +62,12 @@ class LiveKitVoiceChat(AudioUtils):
         
         # 전역 기본값
         self.default_settings = {
-            'use_voice_enhance': True,
-            'hear_me': False,
-            'record_audio': True,
-            'classify_event': True,
-            'do_stt': True,
-            'enhance_volume': 0,
+            'use_voice_enhance': True,      # 음성 강화 (소음 제거)
+            'hear_me': False,               # 내 소리 듣기
+            'record_audio': True,           # 오디오 녹음
+            'classify_event': True,         # 이벤트 분류
+            'do_stt': True,                 # 음성 인식 (STT)
+            'enhance_volume': 0,            # 볼륨 증폭
             'keep_test_room': True
         }
 
@@ -243,6 +244,9 @@ class LiveKitVoiceChat(AudioUtils):
                     }
                     participants.append(participant_info)
             
+            # 방 설정 조회
+            room_settings = self.get_room_settings(room_name)
+            
             # 방 정보
             room_info = {
                 "room_name": room_name,
@@ -250,7 +254,8 @@ class LiveKitVoiceChat(AudioUtils):
                 "participants": participants,
                 "is_active": room_name in self.rooms,
                 "has_audio_buffers": room_name in self.room_audio_buffers,
-                "audio_buffer_count": len(self.room_audio_buffers.get(room_name, {}))
+                "audio_buffer_count": len(self.room_audio_buffers.get(room_name, {})),
+                "settings": room_settings
             }
             
             return room_info
@@ -280,6 +285,78 @@ class LiveKitVoiceChat(AudioUtils):
         except Exception as e:
             aprint(f"전체 방 상태 조회 오류: {e}")
             return {"error": f"Failed to get all rooms status: {e}"}
+
+    def get_room_settings(self, room_name: str) -> dict:
+        """방 설정 조회 (캐시 우선)"""
+        try:
+            # 캐시에서 먼저 확인
+            if room_name in self.room_settings_cache:
+                return self.room_settings_cache[room_name]
+            
+            # DB에서 조회
+            with Session(engine) as session:
+                settings = session.exec(select(RoomSettings).where(RoomSettings.room_name == room_name)).first()
+                
+                if settings:
+                    room_settings = {
+                        'use_voice_enhance': settings.use_voice_enhance,      # 음성 강화 (소음 제거)
+                        'hear_me': settings.hear_me,                          # 내 소리 듣기
+                        'record_audio': settings.record_audio,                # 오디오 녹음
+                        'classify_event': settings.classify_event,            # 이벤트 분류
+                        'do_stt': settings.do_stt,                            # 음성 인식 (STT)
+                        'enhance_volume': settings.enhance_volume             # 볼륨 증폭
+                    }
+                else:
+                    # 기본 설정 사용
+                    room_settings = self.default_settings.copy()
+                    room_settings.pop('keep_test_room', None)  # DB에 저장하지 않는 설정 제거
+                
+                # 캐시에 저장
+                self.room_settings_cache[room_name] = room_settings
+                return room_settings
+                
+        except Exception as e:
+            aprint(f"방 설정 조회 오류: {e}")
+            return self.default_settings.copy()
+
+    def update_room_settings(self, room_name: str, settings: dict) -> dict:
+        """방 설정 업데이트"""
+        try:
+            with Session(engine) as session:
+                # 기존 설정 조회
+                existing_settings = session.exec(select(RoomSettings).where(RoomSettings.room_name == room_name)).first()
+                
+                if existing_settings:
+                    # 기존 설정 업데이트
+                    for key, value in settings.items():
+                        if hasattr(existing_settings, key):
+                            setattr(existing_settings, key, value)
+                    existing_settings.updated_at = datetime.now()
+                    session.add(existing_settings)
+                else:
+                    # 새 설정 생성
+                    new_settings = RoomSettings(
+                        room_name=room_name,
+                        use_voice_enhance=settings.get('use_voice_enhance', True),
+                        hear_me=settings.get('hear_me', False),
+                        record_audio=settings.get('record_audio', True),
+                        classify_event=settings.get('classify_event', True),
+                        do_stt=settings.get('do_stt', True),
+                        enhance_volume=settings.get('enhance_volume', 0)
+                    )
+                    session.add(new_settings)
+                
+                session.commit()
+                
+                # 캐시 업데이트
+                self.room_settings_cache[room_name] = settings
+                
+                aprint(f"방 '{room_name}' 설정 업데이트 완료: {settings}")
+                return {"message": f"Room settings updated for {room_name}", "settings": settings}
+                
+        except Exception as e:
+            aprint(f"방 설정 업데이트 오류: {e}")
+            return {"error": f"Failed to update room settings: {e}"}
 
     def set_participant_enhancement(self, participant_identity: str, enabled: bool = True, 
                                   enhancement_type: str = "light") -> dict:
@@ -329,43 +406,69 @@ class LiveKitVoiceChat(AudioUtils):
             "type": settings["type"]
         }
 
-    def apply_enhancement(self, audio_data: np.ndarray, participant_identity: str) -> np.ndarray:
-        """오디오 데이터에 소음제거 적용"""
+    def apply_audio_processing(self, audio_data: np.ndarray, participant_identity: str, room_name: str) -> np.ndarray:
+        """오디오 데이터에 방 설정에 따른 처리 적용"""
         try:
-            settings = self.participant_enhance_settings.get(participant_identity, {
-                "enabled": True,
-                "type": "light"
-            })
+            # 방 설정 조회
+            room_settings = self.get_room_settings(room_name)
             
-            if not settings["enabled"]:
-                return audio_data
+            processed_audio = audio_data.copy()
             
-            # 오디오 데이터를 torch 텐서로 변환
-            if audio_data.dtype == np.int16:
-                audio_tensor = torch.from_numpy(audio_data.astype(np.float32) / 32768.0)
-            else:
-                audio_tensor = torch.from_numpy(audio_data.astype(np.float32))
+            # 1. 음성 강화 (소음 제거) - use_voice_enhance
+            if room_settings.get('use_voice_enhance', True):
+                participant_settings = self.participant_enhance_settings.get(participant_identity, {
+                    "enabled": True,
+                    "type": "light"
+                })
+                
+                if participant_settings["enabled"]:
+                    # 오디오 데이터를 torch 텐서로 변환
+                    if processed_audio.dtype == np.int16:
+                        audio_tensor = torch.from_numpy(processed_audio.astype(np.float32) / 32768.0)
+                    else:
+                        audio_tensor = torch.from_numpy(processed_audio.astype(np.float32))
+                    
+                    # 소음제거 적용
+                    if participant_settings["type"] == "full":
+                        enhanced_tensor = self.voice_enhancer.denoise(audio_tensor, hash(participant_identity))
+                    else:
+                        enhanced_tensor = self.light_enhancer.denoise(processed_audio, hash(participant_identity))
+                    
+                    # 결과를 numpy 배열로 변환
+                    if isinstance(enhanced_tensor, torch.Tensor):
+                        processed_audio = enhanced_tensor.cpu().numpy()
+                    else:
+                        processed_audio = enhanced_tensor
+                    
+                    # int16으로 변환
+                    if processed_audio.dtype != np.int16:
+                        processed_audio = (processed_audio * 32768.0).astype(np.int16)
             
-            # 소음제거 적용
-            if settings["type"] == "full":
-                enhanced_tensor = self.voice_enhancer.denoise(audio_tensor, hash(participant_identity))
-            else:
-                enhanced_tensor = self.light_enhancer.denoise(audio_data, hash(participant_identity))
+            # 2. 볼륨 증폭 - enhance_volume
+            volume_boost = room_settings.get('enhance_volume', 0)
+            if volume_boost > 0:
+                boost_factor = 1.0 + (volume_boost / 100.0)  # 0-100을 1.0-2.0으로 변환
+                processed_audio = np.clip(processed_audio * boost_factor, -32768, 32767).astype(np.int16)
             
-            # 결과를 numpy 배열로 변환
-            if isinstance(enhanced_tensor, torch.Tensor):
-                enhanced_audio = enhanced_tensor.cpu().numpy()
-            else:
-                enhanced_audio = enhanced_tensor
+            # 3. 이벤트 분류 - classify_event (향후 구현)
+            if room_settings.get('classify_event', True):
+                # TODO: 이벤트 분류 로직 구현
+                pass
             
-            # int16으로 변환
-            if enhanced_audio.dtype != np.int16:
-                enhanced_audio = (enhanced_audio * 32768.0).astype(np.int16)
+            # 4. STT 처리 - do_stt (향후 구현)
+            if room_settings.get('do_stt', True):
+                # TODO: STT 처리 로직 구현
+                pass
             
-            return enhanced_audio
+            # 5. 오디오 녹음 - record_audio (향후 구현)
+            if room_settings.get('record_audio', True):
+                # TODO: 오디오 녹음 로직 구현
+                pass
+            
+            return processed_audio
             
         except Exception as e:
-            aprint(f"소음제거 적용 오류: {e}")
+            aprint(f"오디오 처리 오류: {e}")
             return audio_data  # 오류 시 원본 반환
 
     async def setup_room_handlers(self, room_name: str):
@@ -468,12 +571,12 @@ class LiveKitVoiceChat(AudioUtils):
                     # 오디오 프레임을 numpy 배열로 변환
                     audio_data = np.frombuffer(frame.data, dtype=np.int16)
                     
-                    # 소음제거 적용
-                    enhanced_audio = self.apply_enhancement(audio_data, participant.identity)
+                    # 방 설정에 따른 오디오 처리 적용
+                    processed_audio = self.apply_audio_processing(audio_data, participant.identity, room_name)
                     
-                    # 버퍼에 저장 (향상된 오디오)
+                    # 버퍼에 저장 (처리된 오디오)
                     if participant.identity in self.room_audio_buffers[room_name]:
-                        self.room_audio_buffers[room_name][participant.identity].append(enhanced_audio)
+                        self.room_audio_buffers[room_name][participant.identity].append(processed_audio)
                         
                         # 버퍼 크기 제한 (최대 100 프레임)
                         if len(self.room_audio_buffers[room_name][participant.identity]) > 100:
@@ -575,20 +678,6 @@ class LiveKitVoiceChat(AudioUtils):
         if room_name in self.room_settings_cache:
             return self.room_settings_cache[room_name]
         return self.default_settings.copy()
-
-    def update_room_settings(self, room_name: str, **kwargs) -> bool:
-        """방 설정 업데이트"""
-        try:
-            if room_name not in self.room_settings_cache:
-                self.room_settings_cache[room_name] = self.default_settings.copy()
-            
-            self.room_settings_cache[room_name].update(kwargs)
-            aprint(f"방 '{room_name}' 설정 업데이트: {kwargs}")
-            return True
-            
-        except Exception as e:
-            aprint(f"방 설정 업데이트 오류: {e}")
-            return False
 
     async def cleanup(self):
         """리소스 정리"""

@@ -43,6 +43,15 @@ class ParticipantEnhancementRequest(BaseModel):
     enabled: bool = True
     enhancement_type: str = "light"  # "light" or "full"
 
+class RoomSettingsRequest(BaseModel):
+    room_name: str
+    use_voice_enhance: Optional[bool] = None      # 음성 강화 (소음 제거)
+    hear_me: Optional[bool] = None                # 내 소리 듣기
+    record_audio: Optional[bool] = None           # 오디오 녹음
+    classify_event: Optional[bool] = None         # 이벤트 분류
+    do_stt: Optional[bool] = None                 # 음성 인식 (STT)
+    enhance_volume: Optional[int] = None          # 볼륨 증폭 (0-100)
+
 # API 엔드포인트들
 
 @router.get("/rooms")
@@ -273,6 +282,68 @@ async def get_participant_enhancement(participant_identity: str):
     except Exception as e:
         aprint(f"소음제거 설정 조회 오류: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get enhancement: {e}")
+
+# ========== 방 설정 관련 API ==========
+
+@router.get("/rooms/{room_name}/settings")
+async def get_room_settings(room_name: str):
+    """방 설정 조회"""
+    try:
+        settings = livekit_service.get_room_settings(room_name)
+        return {
+            "room_name": room_name,
+            "settings": settings
+        }
+    except Exception as e:
+        aprint(f"방 설정 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get room settings: {e}")
+
+@router.post("/rooms/settings")
+async def update_room_settings(request: RoomSettingsRequest):
+    """방 설정 업데이트"""
+    try:
+        # 요청에서 None이 아닌 값만 추출
+        settings_to_update = {}
+        for field, value in request.dict().items():
+            if field != "room_name" and value is not None:
+                settings_to_update[field] = value
+        
+        if not settings_to_update:
+            raise HTTPException(status_code=400, detail="No settings to update")
+        
+        result = livekit_service.update_room_settings(request.room_name, settings_to_update)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        aprint(f"방 설정 업데이트 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update room settings: {e}")
+
+@router.get("/rooms/settings/all")
+async def get_all_rooms_settings():
+    """모든 방의 설정 조회"""
+    try:
+        all_settings = {}
+        for room_name in livekit_service.rooms.keys():
+            settings = livekit_service.get_room_settings(room_name)
+            all_settings[room_name] = {
+                "room_name": room_name,
+                "settings": settings
+            }
+        
+        return {
+            "total_rooms": len(all_settings),
+            "rooms_settings": all_settings
+        }
+        
+    except Exception as e:
+        aprint(f"전체 방 설정 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get all rooms settings: {e}")
 
 # 서비스 종료 시 정리
 @router.on_event("shutdown")
