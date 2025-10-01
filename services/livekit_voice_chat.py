@@ -183,7 +183,7 @@ class LiveKitVoiceChat(AudioUtils):
             if not token:
                 return {"error": "Failed to generate token"}
             
-            # 클라이언트 정보 저장
+            # 클라이언트 정보 저장 (토큰 생성 시점)
             self.client_info[identity] = {
                 "sr": 16000,
                 "dtype": "int16",
@@ -214,6 +214,72 @@ class LiveKitVoiceChat(AudioUtils):
         except Exception as e:
             aprint(f"방 참가 오류: {e}")
             return {"error": f"Failed to join room: {e}"}
+
+    def get_room_status(self, room_name: str) -> dict:
+        """방 상태 정보 조회"""
+        try:
+            if room_name not in self.rooms:
+                return {"error": f"Room '{room_name}' not found"}
+            
+            # 참가자 정보 수집
+            participants = []
+            if room_name in self.room_participants:
+                for identity, participant in self.room_participants[room_name].items():
+                    client_info = self.client_info.get(identity, {})
+                    enhancement_settings = self.participant_enhance_settings.get(identity, {
+                        "enabled": True,
+                        "type": "light"
+                    })
+                    
+                    participant_info = {
+                        "identity": identity,
+                        "name": client_info.get("person_name", identity),
+                        "device_id": client_info.get("device_id"),
+                        "sample_rate": client_info.get("sr", 16000),
+                        "data_type": client_info.get("dtype", "int16"),
+                        "enhancement": enhancement_settings,
+                        "is_connected": True,
+                        "audio_tracks": len(participant.audio_tracks) if hasattr(participant, 'audio_tracks') else 0
+                    }
+                    participants.append(participant_info)
+            
+            # 방 정보
+            room_info = {
+                "room_name": room_name,
+                "total_participants": len(participants),
+                "participants": participants,
+                "is_active": room_name in self.rooms,
+                "has_audio_buffers": room_name in self.room_audio_buffers,
+                "audio_buffer_count": len(self.room_audio_buffers.get(room_name, {}))
+            }
+            
+            return room_info
+            
+        except Exception as e:
+            aprint(f"방 상태 조회 오류: {e}")
+            return {"error": f"Failed to get room status: {e}"}
+
+    def get_all_rooms_status(self) -> dict:
+        """모든 방의 상태 정보 조회"""
+        try:
+            rooms_status = {}
+            total_participants = 0
+            
+            for room_name in self.rooms.keys():
+                room_status = self.get_room_status(room_name)
+                if "error" not in room_status:
+                    rooms_status[room_name] = room_status
+                    total_participants += room_status["total_participants"]
+            
+            return {
+                "total_rooms": len(rooms_status),
+                "total_participants": total_participants,
+                "rooms": rooms_status
+            }
+            
+        except Exception as e:
+            aprint(f"전체 방 상태 조회 오류: {e}")
+            return {"error": f"Failed to get all rooms status: {e}"}
 
     def set_participant_enhancement(self, participant_identity: str, enabled: bool = True, 
                                   enhancement_type: str = "light") -> dict:
@@ -312,14 +378,52 @@ class LiveKitVoiceChat(AudioUtils):
         @room.on("participant_connected")
         def on_participant_connected(participant: rtc.RemoteParticipant):
             aprint(f"[{room_name}] 참가자 연결: {participant.identity}")
+            
+            # 방별 참가자 딕셔너리 초기화 (필요시)
+            if room_name not in self.room_participants:
+                self.room_participants[room_name] = {}
+            if room_name not in self.room_audio_buffers:
+                self.room_audio_buffers[room_name] = {}
+            
+            # 실제 LiveKit 연결 시점에 참가자 등록
             self.room_participants[room_name][participant.identity] = participant
             self.room_audio_buffers[room_name][participant.identity] = []
+            
+            # 소음제거 스트리머 초기화 (참가자별 설정이 있는 경우)
+            enhancement_settings = self.participant_enhance_settings.get(participant.identity, {
+                "enabled": True,
+                "type": "light"
+            })
+            
+            if enhancement_settings["enabled"]:
+                if enhancement_settings["type"] == "full":
+                    self.voice_enhancer.add_streamer(hash(participant.identity))
+                else:
+                    self.light_enhancer.add_streamer(hash(participant.identity))
+            
+            aprint(f"[{room_name}] 참가자 {participant.identity} 등록 완료 (소음제거: {enhancement_settings['type']})")
         
         @room.on("participant_disconnected")
         def on_participant_disconnected(participant: rtc.RemoteParticipant):
             aprint(f"[{room_name}] 참가자 연결 해제: {participant.identity}")
+            
+            # 참가자 정보 제거
             self.room_participants[room_name].pop(participant.identity, None)
             self.room_audio_buffers[room_name].pop(participant.identity, None)
+            
+            # 소음제거 스트리머 정리
+            enhancement_settings = self.participant_enhance_settings.get(participant.identity, {
+                "enabled": True,
+                "type": "light"
+            })
+            
+            if enhancement_settings["enabled"]:
+                if enhancement_settings["type"] == "full":
+                    self.voice_enhancer.remove_streamer(hash(participant.identity))
+                else:
+                    self.light_enhancer.remove_streamer(hash(participant.identity))
+            
+            aprint(f"[{room_name}] 참가자 {participant.identity} 정리 완료")
             
             # DB 업데이트
             try:

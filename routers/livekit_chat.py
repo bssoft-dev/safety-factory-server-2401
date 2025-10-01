@@ -55,6 +55,34 @@ async def get_rooms():
         aprint(f"방 목록 조회 오류: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get rooms: {e}")
 
+@router.get("/rooms/status")
+async def get_all_rooms_status():
+    """모든 방의 상태 정보 조회"""
+    try:
+        result = livekit_service.get_all_rooms_status()
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        aprint(f"전체 방 상태 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get rooms status: {e}")
+
+@router.get("/rooms/{room_name}/status")
+async def get_room_status(room_name: str):
+    """특정 방의 상태 정보 조회"""
+    try:
+        result = livekit_service.get_room_status(room_name)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        aprint(f"방 상태 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get room status: {e}")
+
 @router.post("/rooms")
 async def create_room(request: RoomCreateRequest):
     """방 생성"""
