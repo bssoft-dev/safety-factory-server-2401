@@ -88,12 +88,14 @@ fi
 # LiveKit 관련 패키지 설치
 log_info "LiveKit 관련 패키지 설치 중..."
 pip install \
-    livekit \
+    livekit==1.0.13 \
     PyJWT \
     aiohttp \
     sounddevice \
     numpy \
-    soundfile
+    soundfile \
+    protobuf \
+    aiofiles
 
 # 8. 오디오 장치 확인
 log_info "오디오 장치 확인 중..."

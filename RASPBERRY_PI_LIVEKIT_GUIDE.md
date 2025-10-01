@@ -46,7 +46,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # LiveKit 의존성 추가 설치
-pip install livekit PyJWT aiohttp
+pip install livekit==1.0.13 PyJWT aiohttp protobuf aiofiles
 ```
 
 ### 3. 설정 파일 수정
@@ -470,7 +470,7 @@ rm -rf venv
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-pip install livekit PyJWT aiohttp
+pip install livekit==1.0.13 PyJWT aiohttp protobuf aiofiles
 ```
 
 ## 📊 성능 최적화
