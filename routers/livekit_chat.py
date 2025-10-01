@@ -38,6 +38,11 @@ class RoomSettingsUpdateRequest(BaseModel):
     do_stt: Optional[bool] = None
     enhance_volume: Optional[int] = None
 
+class ParticipantEnhancementRequest(BaseModel):
+    participant_identity: str
+    enabled: bool = True
+    enhancement_type: str = "light"  # "light" or "full"
+
 # API 엔드포인트들
 
 @router.get("/rooms")
@@ -182,6 +187,64 @@ async def health_check():
     except Exception as e:
         aprint(f"상태 확인 오류: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
+
+# ========== 소음제거 관련 API ==========
+
+@router.post("/enhancement/set")
+async def set_participant_enhancement(request: ParticipantEnhancementRequest):
+    """참가자별 소음제거 설정"""
+    try:
+        # 입력 검증
+        if request.enhancement_type not in ["light", "full"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid enhancement type. Use 'light' or 'full'"
+            )
+        
+        result = livekit_service.set_participant_enhancement(
+            participant_identity=request.participant_identity,
+            enabled=request.enabled,
+            enhancement_type=request.enhancement_type
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        aprint(f"소음제거 설정 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set enhancement: {e}")
+
+@router.get("/enhancement/status")
+async def get_all_enhancement_status():
+    """모든 참가자의 소음제거 설정 상태 조회"""
+    try:
+        status = {}
+        for participant_id in livekit_service.participant_enhance_settings:
+            status[participant_id] = livekit_service.get_participant_enhancement(participant_id)
+        
+        return {
+            "total_participants": len(status),
+            "enhancement_status": status
+        }
+        
+    except Exception as e:
+        aprint(f"전체 소음제거 상태 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get enhancement status: {e}")
+
+@router.get("/enhancement/participant/{participant_identity}")
+async def get_participant_enhancement(participant_identity: str):
+    """참가자별 소음제거 설정 조회"""
+    try:
+        result = livekit_service.get_participant_enhancement(participant_identity)
+        return result
+        
+    except Exception as e:
+        aprint(f"소음제거 설정 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get enhancement: {e}")
 
 # 서비스 종료 시 정리
 @router.on_event("shutdown")

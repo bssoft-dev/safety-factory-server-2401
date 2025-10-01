@@ -3,6 +3,7 @@ import time
 import logging
 from typing import Dict, List, Optional
 import numpy as np
+import torch
 import jwt
 from livekit import rtc
 from sqlmodel import Session, select
@@ -11,6 +12,7 @@ from database import engine
 from models import Rooms, Devices
 from services.audio_utils import AudioUtils
 from services.stt import SttProcessor
+from services.voice_enhance import VoiceEnhancer, LightVoiceEnhancer
 from utils.sys import aprint
 
 
@@ -41,6 +43,14 @@ class LiveKitVoiceChat(AudioUtils):
         
         # STT 프로세서
         self.stt_processor = SttProcessor()
+        
+        # 소음제거 모델 초기화
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.voice_enhancer = VoiceEnhancer(self.device)
+        self.light_enhancer = LightVoiceEnhancer(self.device)
+        
+        # 참가자별 소음제거 설정
+        self.participant_enhance_settings: Dict[str, dict] = {}  # {identity: {enabled: bool, type: str}}
         
         # 로깅 설정
         logging.basicConfig(level=logging.INFO)
@@ -205,6 +215,93 @@ class LiveKitVoiceChat(AudioUtils):
             aprint(f"방 참가 오류: {e}")
             return {"error": f"Failed to join room: {e}"}
 
+    def set_participant_enhancement(self, participant_identity: str, enabled: bool = True, 
+                                  enhancement_type: str = "light") -> dict:
+        """참가자별 소음제거 설정"""
+        try:
+            if enhancement_type not in ["light", "full"]:
+                return {"error": "Invalid enhancement type. Use 'light' or 'full'"}
+            
+            self.participant_enhance_settings[participant_identity] = {
+                "enabled": enabled,
+                "type": enhancement_type
+            }
+            
+            # 스트리머 설정
+            if enabled:
+                if enhancement_type == "full":
+                    self.voice_enhancer.add_streamer(hash(participant_identity))
+                else:
+                    self.light_enhancer.add_streamer(hash(participant_identity))
+            else:
+                # 스트리머 제거
+                if enhancement_type == "full":
+                    self.voice_enhancer.remove_streamer(hash(participant_identity))
+                else:
+                    self.light_enhancer.remove_streamer(hash(participant_identity))
+            
+            aprint(f"참가자 {participant_identity} 소음제거 설정: {enhancement_type} {'활성화' if enabled else '비활성화'}")
+            return {
+                "message": f"Enhancement settings updated for {participant_identity}",
+                "enabled": enabled,
+                "type": enhancement_type
+            }
+            
+        except Exception as e:
+            aprint(f"소음제거 설정 오류: {e}")
+            return {"error": f"Failed to set enhancement: {e}"}
+
+    def get_participant_enhancement(self, participant_identity: str) -> dict:
+        """참가자별 소음제거 설정 조회"""
+        settings = self.participant_enhance_settings.get(participant_identity, {
+            "enabled": True,
+            "type": "light"
+        })
+        return {
+            "participant_identity": participant_identity,
+            "enabled": settings["enabled"],
+            "type": settings["type"]
+        }
+
+    def apply_enhancement(self, audio_data: np.ndarray, participant_identity: str) -> np.ndarray:
+        """오디오 데이터에 소음제거 적용"""
+        try:
+            settings = self.participant_enhance_settings.get(participant_identity, {
+                "enabled": True,
+                "type": "light"
+            })
+            
+            if not settings["enabled"]:
+                return audio_data
+            
+            # 오디오 데이터를 torch 텐서로 변환
+            if audio_data.dtype == np.int16:
+                audio_tensor = torch.from_numpy(audio_data.astype(np.float32) / 32768.0)
+            else:
+                audio_tensor = torch.from_numpy(audio_data.astype(np.float32))
+            
+            # 소음제거 적용
+            if settings["type"] == "full":
+                enhanced_tensor = self.voice_enhancer.denoise(audio_tensor, hash(participant_identity))
+            else:
+                enhanced_tensor = self.light_enhancer.denoise(audio_data, hash(participant_identity))
+            
+            # 결과를 numpy 배열로 변환
+            if isinstance(enhanced_tensor, torch.Tensor):
+                enhanced_audio = enhanced_tensor.cpu().numpy()
+            else:
+                enhanced_audio = enhanced_tensor
+            
+            # int16으로 변환
+            if enhanced_audio.dtype != np.int16:
+                enhanced_audio = (enhanced_audio * 32768.0).astype(np.int16)
+            
+            return enhanced_audio
+            
+        except Exception as e:
+            aprint(f"소음제거 적용 오류: {e}")
+            return audio_data  # 오류 시 원본 반환
+
     async def setup_room_handlers(self, room_name: str):
         """방 이벤트 핸들러 설정"""
         if room_name not in self.rooms:
@@ -267,9 +364,12 @@ class LiveKitVoiceChat(AudioUtils):
                     # 오디오 프레임을 numpy 배열로 변환
                     audio_data = np.frombuffer(frame.data, dtype=np.int16)
                     
-                    # 버퍼에 저장
+                    # 소음제거 적용
+                    enhanced_audio = self.apply_enhancement(audio_data, participant.identity)
+                    
+                    # 버퍼에 저장 (향상된 오디오)
                     if participant.identity in self.room_audio_buffers[room_name]:
-                        self.room_audio_buffers[room_name][participant.identity].append(audio_data)
+                        self.room_audio_buffers[room_name][participant.identity].append(enhanced_audio)
                         
                         # 버퍼 크기 제한 (최대 100 프레임)
                         if len(self.room_audio_buffers[room_name][participant.identity]) > 100:
